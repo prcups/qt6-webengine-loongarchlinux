@@ -2,27 +2,21 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.6.0-beta3
+_qtver=6.5.2
 pkgver=${_qtver/-/}
-pkgrel=1
+pkgrel=2
 arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
 pkgdesc='Provides support for web applications using the Chromium browser project'
 depends=(qt6-webchannel qt6-positioning libxcomposite libxrandr libxkbfile 
-         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils re2
-makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy)
+         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils
+makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy git)
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
-        qt6-webengine-6.6-fix-build.patch::"https://codereview.qt-project.org/gitweb?p=qt/qtwebengine-chromium.git;a=patch;h=8ebc2ff3")
-sha256sums=('c9afbba425fd3ae299528c0e1986091a655a15bb201db4ef6644f0a85b8def1c'
-            '9bfc00e7093407621f491dd79f23a9c6e71cd57c2b3e01f4cf4896869c0ccf7c')
-
-prepare() {
-  patch -d $_pkgfn/src/3rdparty -p1 < qt6-webengine-6.6-fix-build.patch
-}
+source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
+sha256sums=('e7c9438b56f502b44b4e376b92ed80f1db7c2c3881d68d319b0677afd5701d9f')
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
