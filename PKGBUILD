@@ -2,7 +2,7 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.6.0-beta3
+_qtver=6.6.0-beta4
 pkgver=${_qtver/-/}
 pkgrel=1
 arch=(x86_64)
@@ -17,7 +17,7 @@ groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
 source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
         qt6-webengine-6.6-fix-build.patch::"https://codereview.qt-project.org/gitweb?p=qt/qtwebengine-chromium.git;a=patch;h=8ebc2ff3")
-sha256sums=('c9afbba425fd3ae299528c0e1986091a655a15bb201db4ef6644f0a85b8def1c'
+sha256sums=('677eb5c7a162db6bef6d9472473fa84c83d6f1964b7ad735ff89b00a056232ab'
             '9bfc00e7093407621f491dd79f23a9c6e71cd57c2b3e01f4cf4896869c0ccf7c')
 
 prepare() {
