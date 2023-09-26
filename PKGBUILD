@@ -2,21 +2,27 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.6.0-rc
+_qtver=6.5.2
 pkgver=${_qtver/-/}
-pkgrel=1
+pkgrel=3
 arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
 pkgdesc='Provides support for web applications using the Chromium browser project'
 depends=(qt6-webchannel qt6-positioning libxcomposite libxrandr libxkbfile 
-         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils re2
-makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy)
+         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils
+makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy git)
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
-sha256sums=('89d38e9260eef4bcadcc01f5486af51134a7e858be871542212d2fe3e3ce1c13')
+source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
+        qtbug-113369.patch::https://code.qt.io/cgit/qt/qtwebengine.git/patch/?id=a80e1d3b)
+sha256sums=('e7c9438b56f502b44b4e376b92ed80f1db7c2c3881d68d319b0677afd5701d9f'
+            'b0c646e8e25416d5d17a2c27c98aee10a72371bb2673ca4e7ee3c4fb44e8ca00')
+
+prepare() {
+  patch -d $_pkgfn -p1 < qtbug-113369.patch # Fix crashes on some websites in dark mode
+}
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
