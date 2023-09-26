@@ -15,14 +15,8 @@ makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
-        qt6-webengine-6.6-fix-build.patch::"https://codereview.qt-project.org/gitweb?p=qt/qtwebengine-chromium.git;a=patch;h=8ebc2ff3")
-sha256sums=('89d38e9260eef4bcadcc01f5486af51134a7e858be871542212d2fe3e3ce1c13'
-            '9bfc00e7093407621f491dd79f23a9c6e71cd57c2b3e01f4cf4896869c0ccf7c')
-
-prepare() {
-  patch -d $_pkgfn/src/3rdparty -p1 < qt6-webengine-6.6-fix-build.patch
-}
+source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
+sha256sums=('89d38e9260eef4bcadcc01f5486af51134a7e858be871542212d2fe3e3ce1c13')
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
