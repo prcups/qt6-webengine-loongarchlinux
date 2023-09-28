@@ -15,14 +15,8 @@ makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
-        qtbug-113369.patch::https://code.qt.io/cgit/qt/qtwebengine.git/patch/?id=a80e1d3b)
-sha256sums=('2314ce9b0dd5f75f629077daad5a5781bac164d508ecff2ebad56ff2bc8745e5'
-            'b0c646e8e25416d5d17a2c27c98aee10a72371bb2673ca4e7ee3c4fb44e8ca00')
-
-prepare() {
-  patch -d $_pkgfn -p1 < qtbug-113369.patch # Fix crashes on some websites in dark mode
-}
+source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
+sha256sums=('2314ce9b0dd5f75f629077daad5a5781bac164d508ecff2ebad56ff2bc8745e5')
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
