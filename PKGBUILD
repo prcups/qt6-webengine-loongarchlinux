@@ -2,9 +2,9 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.5.2
+_qtver=6.5.3
 pkgver=${_qtver/-/}
-pkgrel=3
+pkgrel=1
 arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
@@ -17,7 +17,7 @@ groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
 source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
         qtbug-113369.patch::https://code.qt.io/cgit/qt/qtwebengine.git/patch/?id=a80e1d3b)
-sha256sums=('e7c9438b56f502b44b4e376b92ed80f1db7c2c3881d68d319b0677afd5701d9f'
+sha256sums=('2314ce9b0dd5f75f629077daad5a5781bac164d508ecff2ebad56ff2bc8745e5'
             'b0c646e8e25416d5d17a2c27c98aee10a72371bb2673ca4e7ee3c4fb44e8ca00')
 
 prepare() {
