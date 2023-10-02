@@ -9,9 +9,62 @@ arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
 pkgdesc='Provides support for web applications using the Chromium browser project'
-depends=(qt6-webchannel qt6-positioning libxcomposite libxrandr libxkbfile 
-         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils re2
-makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy)
+depends=(alsa-lib
+         dbus
+         expat
+         ffmpeg
+         fontconfig
+         freetype2
+         gcc-libs
+         glib2
+         glibc
+         harfbuzz
+         icu
+         lcms2
+         libdrm
+         libevent
+         libjpeg-turbo
+         libpng
+         libtiff
+         libvpx
+         libwebp
+         libx11
+         libxcb
+         libxcomposite
+         libxfixes
+         libxkbcommon
+         libxkbfile
+         libxdamage
+         libxext
+         libxml2
+         libxrandr
+         libxslt
+         libxtst
+         mesa
+         minizip
+         nspr
+         nss
+         openjpeg2
+         opus
+         qt6-base
+         qt6-declarative
+         qt6-positioning
+         qt6-webchannel
+         snappy
+         ttf-font
+         zlib)
+       # pciutils re2
+makedepends=(cmake
+             gperf
+             jsoncpp
+             libepoxy
+             ninja
+             nodejs
+             perf
+             pipewire
+             python-html5lib
+             qt6-tools
+             qt6-websockets)
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
