@@ -26,7 +26,6 @@ depends=(alsa-lib
          libjpeg-turbo
          libpng
          libtiff
-         libvpx
          libwebp
          libx11
          libxcb
@@ -53,7 +52,8 @@ depends=(alsa-lib
          snappy
          ttf-font
          zlib)
-       # pciutils re2
+       # system libvpx disabled since https://codereview.qt-project.org/c/qt/qtwebengine/+/454908
+       # libvpx pciutils re2
 makedepends=(cmake
              gperf
              jsoncpp
