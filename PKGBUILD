@@ -2,21 +2,74 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.5.3
+_qtver=6.6.0
 pkgver=${_qtver/-/}
 pkgrel=1
 arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
 pkgdesc='Provides support for web applications using the Chromium browser project'
-depends=(qt6-webchannel qt6-positioning libxcomposite libxrandr libxkbfile 
-         snappy nss libxslt minizip ffmpeg libvpx libxtst ttf-font) # pciutils
-makedepends=(cmake ninja python-html5lib gperf jsoncpp qt6-tools pipewire nodejs qt6-websockets libepoxy git)
+depends=(alsa-lib
+         dbus
+         expat
+         ffmpeg
+         fontconfig
+         freetype2
+         gcc-libs
+         glib2
+         glibc
+         harfbuzz
+         icu
+         lcms2
+         libdrm
+         libevent
+         libjpeg-turbo
+         libpng
+         libtiff
+         libwebp
+         libx11
+         libxcb
+         libxcomposite
+         libxfixes
+         libxkbcommon
+         libxkbfile
+         libxdamage
+         libxext
+         libxml2
+         libxrandr
+         libxslt
+         libxtst
+         mesa
+         minizip
+         nspr
+         nss
+         openjpeg2
+         opus
+         qt6-base
+         qt6-declarative
+         qt6-positioning
+         qt6-webchannel
+         snappy
+         ttf-font
+         zlib)
+       # system libvpx disabled since https://codereview.qt-project.org/c/qt/qtwebengine/+/454908
+       # libvpx pciutils re2
+makedepends=(cmake
+             gperf
+             jsoncpp
+             libepoxy
+             ninja
+             nodejs
+             perf
+             pipewire
+             python-html5lib
+             qt6-tools
+             qt6-websockets)
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
 source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
-sha256sums=('2314ce9b0dd5f75f629077daad5a5781bac164d508ecff2ebad56ff2bc8745e5')
+sha256sums=('d5dc9ff05a2c57adbf99cbf0c7cb6f19527f67216caf627b0cc160a1d253b780')
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
