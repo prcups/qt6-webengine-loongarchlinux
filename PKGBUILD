@@ -68,8 +68,14 @@ makedepends=(cmake
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
-sha256sums=('7a6ea228214bd66029ca90549b29021f30f7544abff997b7f831ceac2ce73691')
+source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
+        libxml-2.12.patch)
+sha256sums=('7a6ea228214bd66029ca90549b29021f30f7544abff997b7f831ceac2ce73691'
+            'bfae9e773edfd0ddbc617777fdd4c0609cba2b048be7afe40f97768e4eb6117e')
+
+prepare() {
+  patch -d $_pkgfn/src/3rdparty/chromium -p1 < libxml-2.12.patch
+}
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
