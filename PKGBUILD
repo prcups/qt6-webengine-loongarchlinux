@@ -2,7 +2,7 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.6.0
+_qtver=6.6.1
 pkgver=${_qtver/-/}
 pkgrel=1
 arch=(x86_64)
@@ -69,7 +69,7 @@ optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
 source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
-sha256sums=('d5dc9ff05a2c57adbf99cbf0c7cb6f19527f67216caf627b0cc160a1d253b780')
+sha256sums=('7a6ea228214bd66029ca90549b29021f30f7544abff997b7f831ceac2ce73691')
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
