@@ -4,7 +4,7 @@
 pkgname=qt6-webengine
 _qtver=6.6.1
 pkgver=${_qtver/-/}
-pkgrel=1
+pkgrel=2
 arch=(x86_64)
 url='https://www.qt.io'
 license=(GPL3 LGPL3 FDL custom)
@@ -69,12 +69,15 @@ optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
 source=(https://download.qt.io/official_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
-        libxml-2.12.patch)
+        libxml-2.12.patch
+        icu-74.patch)
 sha256sums=('7a6ea228214bd66029ca90549b29021f30f7544abff997b7f831ceac2ce73691'
-            'bfae9e773edfd0ddbc617777fdd4c0609cba2b048be7afe40f97768e4eb6117e')
+            'bfae9e773edfd0ddbc617777fdd4c0609cba2b048be7afe40f97768e4eb6117e'
+            '547e092f6a20ebd15e486b31111145bc94b8709ec230da89c591963001378845')
 
 prepare() {
   patch -d $_pkgfn/src/3rdparty/chromium -p1 < libxml-2.12.patch
+  patch -d $_pkgfn/src/3rdparty/chromium -p1 < icu-74.patch # Fix build with ICU 74 - patch from Alpine
 }
 
 build() {
