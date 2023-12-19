@@ -2,7 +2,7 @@
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 
 pkgname=qt6-webengine
-_qtver=6.6.0-rc
+_qtver=6.7.0-beta1
 pkgver=${_qtver/-/}
 pkgrel=1
 arch=(x86_64)
@@ -68,8 +68,17 @@ makedepends=(cmake
 optdepends=('pipewire: WebRTC desktop sharing under Wayland')
 groups=(qt6)
 _pkgfn=${pkgname/6-/}-everywhere-src-$_qtver
-source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz)
-sha256sums=('89d38e9260eef4bcadcc01f5486af51134a7e858be871542212d2fe3e3ce1c13')
+source=(https://download.qt.io/development_releases/qt/${pkgver%.*}/$_qtver/submodules/$_pkgfn.tar.xz
+        libxml-2.12.patch
+        icu-74.patch)
+sha256sums=('7de613158bbbb5477a83dfe6daac4241e2ac172b3179f79ac232fbac8690f030'
+            'bfae9e773edfd0ddbc617777fdd4c0609cba2b048be7afe40f97768e4eb6117e'
+            '547e092f6a20ebd15e486b31111145bc94b8709ec230da89c591963001378845')
+
+prepare() {
+  patch -d $_pkgfn/src/3rdparty/chromium -p1 < libxml-2.12.patch
+  patch -d $_pkgfn/src/3rdparty/chromium -p1 < icu-74.patch # Fix build with ICU 74 - patch from Alpine
+}
 
 build() {
   cmake -B build -S $_pkgfn -G Ninja \
