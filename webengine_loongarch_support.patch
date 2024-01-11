@@ -1,0 +1,21 @@
+diff -uNr a/cmake/Functions.cmake b/cmake/Functions.cmake
+--- a/cmake/Functions.cmake	2023-12-13 06:08:45.000000000 +0800
++++ b/cmake/Functions.cmake	2024-01-10 19:00:00.440000000 +0800
+@@ -663,6 +663,8 @@
+         set(${result} "mips64el" PARENT_SCOPE)
+     elseif(arch STREQUAL "riscv64")
+         set(${result} "riscv64" PARENT_SCOPE)
++	elseif(arch STREQUAL "loongarch64")	
++        set(${result} "loong64" PARENT_SCOPE)
+     else()
+         message(DEBUG "Unsupported architecture: ${arch}")
+     endif()
+@@ -684,6 +686,8 @@
+             set(${result} "mipsel" PARENT_SCOPE)
+         elseif(hostArch STREQUAL "riscv64")
+             set(${result} "riscv64" PARENT_SCOPE)
++		elseif(arch STREQUAL "loongarch64")	
++            set(${result} "loong64" PARENT_SCOPE)
+         elseif(hostArch IN_LIST list32)
+             set(${result} "${hostArch}" PARENT_SCOPE)
+         else()

@@ -1,0 +1,4446 @@
+diff -uNr a/src/3rdparty/chromium/args.gn b/src/3rdparty/chromium/args.gn
+--- a/src/3rdparty/chromium/args.gn	1970-01-01 08:00:00.000000000 +0800
++++ b/src/3rdparty/chromium/args.gn	2024-01-07 16:51:15.980000000 +0800
+@@ -0,0 +1,2 @@
++# Build arguments go here.
++# See "gn args <out_dir> --list" for available build arguments.
+diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/BUILD.gn b/src/3rdparty/chromium/base/allocator/partition_allocator/BUILD.gn
+--- a/src/3rdparty/chromium/base/allocator/partition_allocator/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/base/allocator/partition_allocator/BUILD.gn	2024-01-07 22:55:38.632000000 +0800
+@@ -264,6 +264,9 @@
+     } else if (current_cpu == "riscv64") {
+       assert(pcscan_stack_supported)
+       sources += [ "starscan/stack/asm/riscv64/push_registers_asm.cc" ]
++    } else if (current_cpu == "loong64") {
++      assert(pcscan_stack_supported)
++      sources += [ "starscan/stack/asm/loong64/push_registers_asm.cc" ]
+     } else {
+       # To support a trampoline for another arch, please refer to v8/src/heap/base.
+       assert(!pcscan_stack_supported)
+diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/partition_alloc.gni b/src/3rdparty/chromium/base/allocator/partition_allocator/partition_alloc.gni
+--- a/src/3rdparty/chromium/base/allocator/partition_allocator/partition_alloc.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/base/allocator/partition_allocator/partition_alloc.gni	2024-01-07 15:46:01.940000000 +0800
+@@ -213,7 +213,7 @@
+ pcscan_stack_supported =
+     use_starscan &&
+     (current_cpu == "x64" || current_cpu == "x86" || current_cpu == "arm" ||
+-     current_cpu == "arm64" || current_cpu == "riscv64") && (is_clang || !is_win)
++     current_cpu == "arm64" || current_cpu == "riscv64" || current_cpu == "loong64" ) && (is_clang || !is_win)
+ 
+ # We want to provide assertions that guard against inconsistent build
+ # args, but there is no point in having them fire if we're not building
+diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc
+--- a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc	1970-01-01 08:00:00.000000000 +0800
++++ b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc	2024-01-08 12:58:19.132000000 +0800
+@@ -0,0 +1,48 @@
++// Copyright 2023 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Push all callee-saved registers to get them on the stack for conservative
++// stack scanning.
++//
++// See asm/x64/push_registers_asm.cc for why the function is not generated
++// using clang.
++//
++// Calling convention source:
++// https://riscv.org/wp-content/uploads/2015/01/riscv-calling.pdf Table 18.2
++asm(".global PAPushAllRegistersAndIterateStack             \n"
++    ".type PAPushAllRegistersAndIterateStack, %function    \n"
++    ".hidden PAPushAllRegistersAndIterateStack             \n"
++    "PAPushAllRegistersAndIterateStack:                    \n"
++    // Push all callee-saved registers and save return address.
++    "  addi.d $sp, $sp, -88                                \n"
++    // Save return address.
++    "  st.d $ra, $sp, 80                                   \n"
++    // sp is callee-saved.
++    "  st.d $sp, $sp, 72                                   \n"
++    // s0-s8 and fp are callee-saved.
++    "  st.d $s8, $sp, 64                                   \n"
++    "  st.d $s7, $sp, 56                                   \n"
++    "  st.d $s6, $sp, 48                                   \n"
++    "  st.d $s5, $sp, 40                                   \n"
++    "  st.d $s4, $sp, 32                                   \n"
++    "  st.d $s3, $sp, 24                                   \n"
++    "  st.d $s2, $sp, 16                                   \n"
++    "  st.d $s1, $sp, 8                                    \n"
++    "  st.d $s0, $sp, 0                                    \n"
++    // Maintain frame pointer(fp is s0).
++    "  move $s0, $sp                                       \n"
++    // Pass 1st parameter (a0) unchanged (Stack*).
++    // Pass 2nd parameter (a1) unchanged (StackVisitor*).
++    // Save 3rd parameter (a2; IterateStackCallback) to a3.
++    "  move $a3, $a2                                       \n"
++    // Pass 3rd parameter as sp (stack pointer).
++    "  move $a2, $sp                                       \n"
++    // Call the callback.
++    "  jirl $ra, $a3, 0                                    \n"
++    // Load return address.
++    "  ld.d $ra, $sp, 80                                   \n"
++    // Restore frame pointer.
++    "  ld.d $s0, $sp, 0                                    \n"
++    "  addi.d $sp, $sp, 88                                 \n"
++    "  jr $ra                                              \n");
+diff -uNr a/src/3rdparty/chromium/build/config/linux/pkg-config.py b/src/3rdparty/chromium/build/config/linux/pkg-config.py
+--- a/src/3rdparty/chromium/build/config/linux/pkg-config.py	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/build/config/linux/pkg-config.py	2024-01-06 21:23:18.336000000 +0800
+@@ -59,6 +59,10 @@
+     sys.exit(1)
+ 
+   libdir = sysroot + '/usr/' + options.system_libdir + '/pkgconfig'
++  if arch == 'loong64':
++    libdir = sysroot + '/usr/' + 'lib64' + '/pkgconfig'
++  else:
++    libdir = sysroot + '/usr/' + options.system_libdir + '/pkgconfig'
+   libdir += ':' + sysroot + '/usr/share/pkgconfig'
+   os.environ['PKG_CONFIG_LIBDIR'] = libdir
+   return libdir
+diff -uNr a/src/3rdparty/chromium/build/config/sysroot.gni b/src/3rdparty/chromium/build/config/sysroot.gni
+--- a/src/3rdparty/chromium/build/config/sysroot.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/build/config/sysroot.gni	2024-01-07 14:41:32.384000000 +0800
+@@ -25,7 +25,8 @@
+   use_sysroot =
+       current_cpu == "x86" || current_cpu == "x64" || current_cpu == "arm" ||
+       current_cpu == "arm64" || current_cpu == "mipsel" ||
+-      current_cpu == "mips64el" || (current_cpu == "riscv64" && is_android)
++      current_cpu == "mips64el" || (current_cpu == "riscv64" || 
++      current_cpu == "loong64" && is_android)
+ }
+ 
+ if (sysroot == "") {
+@@ -52,6 +53,8 @@
+       sysroot = "$target_sysroot_dir/debian_bullseye_armhf-sysroot"
+     } else if (current_cpu == "arm64") {
+       sysroot = "$target_sysroot_dir/debian_bullseye_arm64-sysroot"
++    } else if (current_cpu == "loong64" ) {
++      sysroot = "$target_sysroot_dir/debian_bullseye_loong64-sysroot"
+     } else {
+       assert(false, "No linux sysroot for cpu: $target_cpu")
+     }
+diff -uNr a/src/3rdparty/chromium/build/linux/sysroot_scripts/install-sysroot.py b/src/3rdparty/chromium/build/linux/sysroot_scripts/install-sysroot.py
+--- a/src/3rdparty/chromium/build/linux/sysroot_scripts/install-sysroot.py	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/build/linux/sysroot_scripts/install-sysroot.py	2024-01-06 20:46:18.268000000 +0800
+@@ -35,7 +35,7 @@
+ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+ 
+-VALID_ARCHS = ('amd64', 'i386', 'armhf', 'arm64', 'armel', 'mipsel', 'mips64el')
++VALID_ARCHS = ('amd64', 'i386', 'armhf', 'arm64', 'armel', 'mipsel', 'mips64el', 'loong64')
+ 
+ ARCH_TRANSLATIONS = {
+     'x64': 'amd64',
+@@ -43,6 +43,7 @@
+     'arm': 'armhf',
+     'mips': 'mipsel',
+     'mips64': 'mips64el',
++	'loongarch64': 'loong64',
+ }
+ 
+ DEFAULT_SYSROOTS_PATH = os.path.join(os.path.relpath(SCRIPT_DIR, SRC_DIR),
+diff -uNr a/src/3rdparty/chromium/build/linux/sysroot_scripts/sysroots.json b/src/3rdparty/chromium/build/linux/sysroot_scripts/sysroots.json
+--- a/src/3rdparty/chromium/build/linux/sysroot_scripts/sysroots.json	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/build/linux/sysroot_scripts/sysroots.json	2024-01-06 20:48:29.096000000 +0800
+@@ -41,6 +41,13 @@
+         "Tarball": "debian_bullseye_mips64el_sysroot.tar.xz",
+         "URL": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/toolchain"
+     },
++    "bullseye_loong64": {
++        "Key": "20230329T085712Z-1",
++        "Sha1Sum": "37e23cd7512b3c4d0dacbc5d253f3a496c38f5fb",
++        "SysrootDir": "debian_bullseye_loong64-sysroot",
++        "Tarball": "debian_bullseye_loong64_sysroot.tar.xz",
++        "URL": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/toolchain"
++    },
+     "bullseye_mipsel": {
+         "Key": "20230611T210420Z-2",
+         "Sha1Sum": "1b857baabd7999ff0d6949a8973f896836ac45ac",
+diff -uNr a/src/3rdparty/chromium/chrome/browser/extensions/api/runtime/chrome_runtime_api_delegate.cc b/src/3rdparty/chromium/chrome/browser/extensions/api/runtime/chrome_runtime_api_delegate.cc
+--- a/src/3rdparty/chromium/chrome/browser/extensions/api/runtime/chrome_runtime_api_delegate.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/chrome/browser/extensions/api/runtime/chrome_runtime_api_delegate.cc	2024-01-06 20:11:31.848000000 +0800
+@@ -301,6 +301,8 @@
+     info->arch = extensions::api::runtime::PlatformArch::kMips;
+   } else if (strcmp(arch, "mips64el") == 0) {
+     info->arch = extensions::api::runtime::PlatformArch::kMips64;
++  } else if (strcmp(nacl_arch, "loong64") == 0) {
++    info->nacl_arch = extensions::api::runtime::PlatformNaclArch::kLoong64;
+   } else {
+     NOTREACHED();
+     return false;
+diff -uNr a/src/3rdparty/chromium/extensions/common/api/runtime.json b/src/3rdparty/chromium/extensions/common/api/runtime.json
+--- a/src/3rdparty/chromium/extensions/common/api/runtime.json	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/extensions/common/api/runtime.json	2024-01-06 20:14:02.628000000 +0800
+@@ -101,7 +101,8 @@
+             {"name": "x86-32", "description": "Specifies the processer architecture as x86-32."},
+             {"name": "x86-64", "description": "Specifies the processer architecture as x86-64."},
+             {"name": "mips", "description": "Specifies the processer architecture as mips."},
+-            {"name": "mips64", "description": "Specifies the processer architecture as mips64."}
++            {"name": "mips64", "description": "Specifies the processer architecture as mips64."},	
++            {"name": "loong64", "description": "Specifies the processer architecture as loong64."}
+          ],
+         "description": "The machine's processor architecture."
+       },
+@@ -114,7 +115,8 @@
+           {"name": "x86-32", "description": "Specifies the native client architecture as x86-32."},
+           {"name": "x86-64", "description": "Specifies the native client architecture as x86-64."},
+           {"name": "mips", "description": "Specifies the native client architecture as mips."},
+-          {"name": "mips64", "description": "Specifies the native client architecture as mips64."}
++          {"name": "mips64", "description": "Specifies the native client architecture as mips64."},
++          {"name": "loong64", "description": "Specifies the processer architecture as loong64."}
+         ]
+       },
+       {
+diff -uNr a/src/3rdparty/chromium/out/Default/args.gn b/src/3rdparty/chromium/out/Default/args.gn
+--- a/src/3rdparty/chromium/out/Default/args.gn	1970-01-01 08:00:00.000000000 +0800
++++ b/src/3rdparty/chromium/out/Default/args.gn	2024-01-07 15:08:15.900000000 +0800
+@@ -0,0 +1,2 @@
++# Build arguments go here.
++# See "gn args <out_dir> --list" for available build arguments.
+diff -uNr a/src/3rdparty/chromium/sandbox/features.gni b/src/3rdparty/chromium/sandbox/features.gni
+--- a/src/3rdparty/chromium/sandbox/features.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/features.gni	2024-01-07 09:29:42.000000000 +0800
+@@ -9,7 +9,7 @@
+ use_seccomp_bpf = (is_linux || is_chromeos || is_android) &&
+                   (current_cpu == "x86" || current_cpu == "x64" ||
+                    current_cpu == "arm" || current_cpu == "arm64" ||
+-                   current_cpu == "mipsel" || current_cpu == "mips64el")
++                   current_cpu == "mipsel" || current_cpu == "mips64el" || current_cpu == "loong64")
+ 
+ # SSBD (Speculative Store Bypass Disable) is a mitigation of Spectre Variant 4.
+ # As Spectre Variant 4 can be mitigated by site isolation, opt-out SSBD on site
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/bpf_dsl/linux_syscall_ranges.h b/src/3rdparty/chromium/sandbox/linux/bpf_dsl/linux_syscall_ranges.h
+--- a/src/3rdparty/chromium/sandbox/linux/bpf_dsl/linux_syscall_ranges.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/bpf_dsl/linux_syscall_ranges.h	2024-01-07 09:31:19.588000000 +0800
+@@ -56,6 +56,13 @@
+ #define MAX_PUBLIC_SYSCALL __NR_syscalls
+ #define MAX_SYSCALL MAX_PUBLIC_SYSCALL
+ 
++#elif defined(__loongarch_lp64)
++
++#include <asm-generic/unistd.h>
++#define MIN_SYSCALL 0u
++#define MAX_PUBLIC_SYSCALL __NR_syscalls
++#define MAX_SYSCALL MAX_PUBLIC_SYSCALL
++
+ #else
+ #error "Unsupported architecture"
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/bpf_dsl/seccomp_macros.h b/src/3rdparty/chromium/sandbox/linux/bpf_dsl/seccomp_macros.h
+--- a/src/3rdparty/chromium/sandbox/linux/bpf_dsl/seccomp_macros.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/bpf_dsl/seccomp_macros.h	2024-01-07 09:34:56.760000000 +0800
+@@ -343,6 +343,50 @@
+ #define SECCOMP_PT_PARM4(_regs) (_regs).regs[3]
+ #define SECCOMP_PT_PARM5(_regs) (_regs).regs[4]
+ #define SECCOMP_PT_PARM6(_regs) (_regs).regs[5]
++
++#elif defined(__loongarch_lp64)
++struct regs_struct {
++  uint64_t regs[32];
++  uint64_t pc;
++};
++
++typedef unsigned long int greg_t;
++
++#define SECCOMP_ARCH AUDIT_ARCH_LOONGARCH64
++
++#define SECCOMP_REG(_ctx, _reg) ((_ctx)->uc_mcontext.__gregs[_reg])
++
++#define SECCOMP_RESULT(_ctx) SECCOMP_REG(_ctx, 4)
++#define SECCOMP_SYSCALL(_ctx) SECCOMP_REG(_ctx, 11)
++#define SECCOMP_IP(_ctx) (_ctx)->uc_mcontext.__pc
++#define SECCOMP_PARM1(_ctx) SECCOMP_REG(_ctx, 4)
++#define SECCOMP_PARM2(_ctx) SECCOMP_REG(_ctx, 5)
++#define SECCOMP_PARM3(_ctx) SECCOMP_REG(_ctx, 6)
++#define SECCOMP_PARM4(_ctx) SECCOMP_REG(_ctx, 7)
++#define SECCOMP_PARM5(_ctx) SECCOMP_REG(_ctx, 8)
++#define SECCOMP_PARM6(_ctx) SECCOMP_REG(_ctx, 9)
++
++#define SECCOMP_NR_IDX (offsetof(struct arch_seccomp_data, nr))
++#define SECCOMP_ARCH_IDX (offsetof(struct arch_seccomp_data, arch))
++#define SECCOMP_IP_MSB_IDX \
++  (offsetof(struct arch_seccomp_data, instruction_pointer) + 4)
++#define SECCOMP_IP_LSB_IDX \
++  (offsetof(struct arch_seccomp_data, instruction_pointer) + 0)
++#define SECCOMP_ARG_MSB_IDX(nr) \
++  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 4)
++#define SECCOMP_ARG_LSB_IDX(nr) \
++  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 0)
++
++#define SECCOMP_PT_RESULT(_regs) (_regs).regs[4]
++#define SECCOMP_PT_SYSCALL(_regs) (_regs).regs[11]
++#define SECCOMP_PT_IP(_regs) (_regs).pc
++#define SECCOMP_PT_PARM1(_regs) (_regs).regs[4]
++#define SECCOMP_PT_PARM2(_regs) (_regs).regs[5]
++#define SECCOMP_PT_PARM3(_regs) (_regs).regs[6]
++#define SECCOMP_PT_PARM4(_regs) (_regs).regs[7]
++#define SECCOMP_PT_PARM5(_regs) (_regs).regs[8]
++#define SECCOMP_PT_PARM6(_regs) (_regs).regs[9]
++
+ #else
+ #error Unsupported target platform
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/BUILD.gn b/src/3rdparty/chromium/sandbox/linux/BUILD.gn
+--- a/src/3rdparty/chromium/sandbox/linux/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/BUILD.gn	2024-01-07 23:19:36.596000000 +0800
+@@ -396,6 +396,7 @@
+     "system_headers/linux_stat.h",
+     "system_headers/linux_syscalls.h",
+     "system_headers/linux_time.h",
++    "system_headers/loong64_linux_syscalls.h",
+     "system_headers/mips64_linux_syscalls.h",
+     "system_headers/mips_linux_syscalls.h",
+     "system_headers/x86_32_linux_syscalls.h",
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/integration_tests/bpf_dsl_seccomp_unittest.cc b/src/3rdparty/chromium/sandbox/linux/integration_tests/bpf_dsl_seccomp_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/integration_tests/bpf_dsl_seccomp_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/integration_tests/bpf_dsl_seccomp_unittest.cc	2024-01-07 09:36:17.236000000 +0800
+@@ -1932,7 +1932,8 @@
+ //
+ // Depending on the architecture, this may modify regs, so the caller is
+ // responsible for committing these changes using PTRACE_SETREGS.
+-#if !defined(__arm__) && !defined(__aarch64__) && !defined(__mips__)
++#if !defined(__arm__) && !defined(__aarch64__) && !defined(__mips__) && \
++	!defined(__loongarch__)
+ long SetSyscall(pid_t pid, regs_struct* regs, int syscall_number) {
+ #if defined(__arm__)
+   // On ARM, the syscall is changed using PTRACE_SET_SYSCALL.  We cannot use the
+@@ -1972,7 +1973,7 @@
+ // See https://code.google.com/p/chromium/issues/detail?id=383977
+ #if defined(__arm__) || defined(__aarch64__)
+   printf("This test is currently disabled on ARM32/64 due to a kernel bug.");
+-#elif defined(__mips__)
++#elif defined(__mips__) || !defined(__loongarch__)
+   // TODO: Figure out how to support specificity of handling indirect syscalls
+   //        in this test and enable it.
+   printf("This test is currently disabled on MIPS.");
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/integration_tests/seccomp_broker_process_unittest.cc b/src/3rdparty/chromium/sandbox/linux/integration_tests/seccomp_broker_process_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/integration_tests/seccomp_broker_process_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/integration_tests/seccomp_broker_process_unittest.cc	2024-01-07 12:48:00.780000000 +0800
+@@ -224,6 +224,7 @@
+ 
+ void ConvertKernelStatToLibcStat(default_stat_struct& in_stat,
+                                  struct stat& out_stat) {
++#if !defined(ARCH_CPU_LOONG64)
+   out_stat.st_dev = in_stat.st_dev;
+   out_stat.st_ino = in_stat.st_ino;
+   out_stat.st_mode = in_stat.st_mode;
+@@ -240,6 +241,29 @@
+   out_stat.st_mtim.tv_nsec = in_stat.st_mtime_nsec_;
+   out_stat.st_ctim.tv_sec = in_stat.st_ctime_;
+   out_stat.st_ctim.tv_nsec = in_stat.st_ctime_nsec_;
++#else
++  out_stat.st_dev =
++      ((in_stat.stx_dev_minor & 0xff) | (in_stat.stx_dev_major << 8) |
++       ((in_stat.stx_dev_minor & ~0xff) << 12));
++  out_stat.st_rdev =
++      ((in_stat.stx_rdev_minor & 0xff) | (in_stat.stx_rdev_major << 8) |
++       ((in_stat.stx_rdev_minor & ~0xff) << 12));
++  out_stat.st_ino = in_stat.stx_ino;
++  out_stat.st_mode = in_stat.stx_mode;
++  out_stat.st_nlink = in_stat.stx_nlink;
++  out_stat.st_uid = in_stat.stx_uid;
++  out_stat.st_gid = in_stat.stx_gid;
++  out_stat.st_atim.tv_sec = in_stat.stx_atime.tv_sec;
++  out_stat.st_atim.tv_nsec = in_stat.stx_atime.tv_nsec;
++  out_stat.st_mtim.tv_sec = in_stat.stx_mtime.tv_sec;
++  out_stat.st_mtim.tv_nsec = in_stat.stx_mtime.tv_nsec;
++  out_stat.st_ctim.tv_sec = in_stat.stx_ctime.tv_sec;
++  out_stat.st_ctim.tv_nsec = in_stat.stx_ctime.tv_nsec;
++  out_stat.st_size = in_stat.stx_size;
++  out_stat.st_blocks = in_stat.stx_blocks;
++  out_stat.st_blksize = in_stat.stx_blksize;
++#endif
++
+ }
+ }  // namespace
+ 
+@@ -408,6 +432,7 @@
+ };
+ #endif  // defined(DIRECT_SYSCALLER_ENABLED)
+ 
++#if !defined(ARCH_CPU_LOONG64)
+ class LibcSyscaller : public Syscaller {
+  public:
+   ~LibcSyscaller() override = default;
+@@ -477,6 +502,8 @@
+   }
+ };
+ 
++#endif
++
+ enum class SyscallerType {
+   IPCSyscaller = 0,
+   DirectSyscaller,
+@@ -663,16 +690,21 @@
+     {"FastCheckInClient_DirectSyscaller", true, SyscallerType::DirectSyscaller,
+      BrokerType::SIGNAL_BASED},
+ #endif
++#if !defined(ARCH_CPU_LOONG64)
+     {"FastCheckInClient_LibcSyscaller", true, SyscallerType::LibcSyscaller,
+      BrokerType::SIGNAL_BASED},
++#endif
+     {"NoFastCheckInClient_IPCSyscaller", false, SyscallerType::IPCSyscaller,
+      BrokerType::SIGNAL_BASED},
+ #if defined(DIRECT_SYSCALLER_ENABLED)
+     {"NoFastCheckInClient_DirectSyscaller", false,
+      SyscallerType::DirectSyscaller, BrokerType::SIGNAL_BASED},
+ #endif
++#if !defined(ARCH_CPU_LOONG64)
+     {"NoFastCheckInClient_LibcSyscaller", false, SyscallerType::LibcSyscaller,
+-     BrokerType::SIGNAL_BASED}};
++     BrokerType::SIGNAL_BASED}
++#endif
++};
+ }  // namespace
+ 
+ void RunSingleBrokerTest(BrokerTestDelegate* test_delegate,
+@@ -1337,8 +1369,10 @@
+     return params;
+   }
+   void RunTestInSandboxedChild(Syscaller* syscaller) override {
++	#if !defined(ARCH_CPU_LOONG64)
+     int ret = syscaller->Stat(tempfile_name_, follow_links, &sb_);
+-    BPF_ASSERT_EQ(-kFakeErrnoSentinel, ret);
++    BPF_ASSERT_EQ(-kFakeErrnoSentinel, ret);a
++	#endif
+   }
+ };
+ 
+@@ -1364,11 +1398,13 @@
+ 
+   void RunTestInSandboxedChild(Syscaller* syscaller) override {
+     // Nonexistent file with no permissions to see file.
++	#if !defined(ARCH_CPU_LOONG64)
+     BPF_ASSERT_EQ(-kFakeErrnoSentinel,
+                   syscaller->Stat(nonesuch_name, follow_links, &sb_));
+     // Actual file with no permission to see file.
+     BPF_ASSERT_EQ(-kFakeErrnoSentinel,
+                   syscaller->Stat(tempfile_name_, follow_links, &sb_));
++    #endif
+   }
+ };
+ 
+@@ -1394,6 +1430,7 @@
+   }
+ 
+   void RunTestInSandboxedChild(Syscaller* syscaller) override {
++	#if !defined(ARCH_CPU_LOONG64)
+     BPF_ASSERT_EQ(-ENOENT, syscaller->Stat(nonesuch_name, follow_links, &sb_));
+ 
+     // Gets denied all the way back to root since no create permission.
+@@ -1417,6 +1454,7 @@
+                   syscaller->Stat(bad_leading_path5, follow_links, &sb_));
+     BPF_ASSERT_EQ(-kFakeErrnoSentinel,
+                   syscaller->Stat(bad_leading_path6, follow_links, &sb_));
++    #endif
+   }
+ };
+ 
+@@ -1446,6 +1484,7 @@
+   }
+ 
+   void RunTestInSandboxedChild(Syscaller* syscaller) override {
++	#if !defined(ARCH_CPU_LOONG64)
+     BPF_ASSERT_EQ(-ENOENT, syscaller->Stat(nonesuch_name, follow_links, &sb_));
+ 
+     // Gets ENOENT all the way back to root since it has create permission.
+@@ -1468,6 +1507,7 @@
+                   syscaller->Stat(bad_leading_path5, follow_links, &sb_));
+     BPF_ASSERT_EQ(-kFakeErrnoSentinel,
+                   syscaller->Stat(bad_leading_path6, follow_links, &sb_));
++    #endif
+   }
+ };
+ 
+@@ -1496,6 +1536,7 @@
+   }
+ 
+   void RunTestInSandboxedChild(Syscaller* syscaller) override {
++	#if !defined(ARCH_CPU_LOONG64)
+     BPF_ASSERT_EQ(0, syscaller->Stat(tempfile_name_, follow_links, &sb_));
+ 
+     // Following fields may never be consistent but should be non-zero.
+@@ -1518,6 +1559,7 @@
+     BPF_ASSERT_LT(1500000000u, static_cast<unsigned int>(sb_.st_atime));
+     BPF_ASSERT_LT(1500000000u, static_cast<unsigned int>(sb_.st_mtime));
+     BPF_ASSERT_LT(1500000000u, static_cast<unsigned int>(sb_.st_ctime));
++    #endif
+   }
+ };
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf/syscall.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf/syscall.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf/syscall.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf/syscall.cc	2024-01-08 11:55:14.872000000 +0800
+@@ -18,7 +18,7 @@
+ namespace {
+ 
+ #if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARM_FAMILY) || \
+-    defined(ARCH_CPU_MIPS_FAMILY)
++    defined(ARCH_CPU_MIPS_FAMILY) || defined(ARCH_CPU_LOONGARCH_FAMILY)
+ // Number that's not currently used by any Linux kernel ABIs.
+ const int kInvalidSyscallNumber = 0x351d3;
+ #else
+@@ -308,6 +308,25 @@
+     "2:ret\n"
+     ".cfi_endproc\n"
+     ".size SyscallAsm, .-SyscallAsm\n"
++#elif defined(__loongarch_lp64)
++    ".text\n"
++    ".global SyscallAsm\n"
++    ".type SyscallAsm, %function\n"
++    "SyscallAsm:\n"
++    "bge $a0, $zero, 1f\n"
++    "la.pcrel $a0, 2f\n"
++    "b 2f\n"
++    "1:ld.d $a5, $a6, 40\n"
++    "ld.d $a4, $a6, 32\n"
++    "ld.d $a3, $a6, 24\n"
++    "ld.d $a2, $a6, 16\n"
++    "ld.d $a1, $a6, 8\n"
++    "move $a7, $a0\n"
++    "ld.d $a0, $a6, 0\n"
++    // Enter the kernel
++    "syscall 0\n"
++    "2:jirl $zero, $ra, 0\n"
++    ".size SyscallAsm, .-SyscallAsm\n"
+ #endif
+     );  // asm
+ 
+@@ -425,6 +444,18 @@
+     ret = inout;
+   }
+ 
++#elif defined(__loongarch_lp64)
++  intptr_t ret;
++  {
++    register intptr_t inout __asm__("$r4") = nr;
++    register const intptr_t* data __asm__("$r10") = args;
++    asm volatile("bl SyscallAsm\n"
++                 : "=r"(inout)
++                 : "0"(inout), "r"(data)
++                 : "memory", "$r5", "$r6", "$r7", "$r8", "$r9", "$r11", "$r1");
++    ret = inout;
++  }
++
+ #else
+ #error "Unimplemented architecture"
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy.cc	2024-01-07 12:52:28.160000000 +0800
+@@ -193,7 +193,7 @@
+     return RestrictFcntlCommands();
+ #endif
+ 
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+   // fork() is never used as a system call (clone() is used instead), but we
+   // have seen it in fallback code on Android.
+   if (sysno == __NR_fork) {
+@@ -255,7 +255,7 @@
+   }
+ 
+ #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch_lp64)
+   if (sysno == __NR_mmap)
+     return RestrictMmapFlags();
+ #endif
+@@ -276,7 +276,7 @@
+     return RestrictPrctl();
+ 
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch_lp64)
+   if (sysno == __NR_socketpair) {
+     // Only allow AF_UNIX, PF_UNIX. Crash if anything else is seen.
+     static_assert(AF_UNIX == PF_UNIX,
+@@ -302,12 +302,14 @@
+     return Allow();
+   }
+ 
++#if !defined(__loongarch__)
+   // The fstatat syscalls are file system syscalls, which will be denied below
+   // with fs_denied_errno. However some allowed fstat syscalls are rewritten by
+   // libc implementations to fstatat syscalls, and we need to rewrite them back.
+   if (sysno == __NR_fstatat_default) {
+     return RewriteFstatatSIGSYS(fs_denied_errno);
+   }
++#endif
+ 
+   // The statx syscall is a filesystem syscall, which will be denied below with
+   // fs_denied_errno. However, on some platforms, glibc will default to statx
+@@ -366,7 +368,7 @@
+   // Allow creating pipes, but don't allow weird flags to pipe2().
+   // O_NOTIFICATION_PIPE (== O_EXCL) can be used to create
+   // "notification pipes", which are rarely used.
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+   if (sysno == __NR_pipe) {
+     return Allow();
+   }
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy_unittest.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/baseline_policy_unittest.cc	2024-01-07 12:54:49.752000000 +0800
+@@ -54,9 +54,12 @@
+ 
+ // This also tests that read(), write(), fstat(), and fstatat(.., "", ..,
+ // AT_EMPTY_PATH) are allowed.
++// Use statx instead of stat,lstat and fstatat on loongarch_lp64 architecture,
++// So not test fstat(), and fstatat on loongarch_lp64.
+ void TestPipeOrSocketPair(base::ScopedFD read_end, base::ScopedFD write_end) {
+   BPF_ASSERT_LE(0, read_end.get());
+   BPF_ASSERT_LE(0, write_end.get());
++#if !defined(__loongarch_lp64)
+   struct stat stat_buf;
+   int sys_ret = fstat(read_end.get(), &stat_buf);
+   BPF_ASSERT_EQ(0, sys_ret);
+@@ -76,6 +79,8 @@
+   BPF_ASSERT_EQ(sys_ret, -1);
+   BPF_ASSERT_EQ(EPERM, errno);
+ 
++#endif
++
+   const ssize_t kTestTransferSize = 4;
+   static const char kTestString[kTestTransferSize] = {'T', 'E', 'S', 'T'};
+   ssize_t transfered = 0;
+@@ -256,7 +261,8 @@
+ }
+ 
+ // Not all architectures can restrict the domain for socketpair().
+-#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
++#if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
++    defined(__loongarch_lp64)
+ BPF_DEATH_TEST_C(BaselinePolicy,
+                  SocketpairWrongDomain,
+                  DEATH_SEGV_MESSAGE(GetErrorMessageContentForTests()),
+@@ -265,7 +271,8 @@
+   std::ignore = socketpair(AF_INET, SOCK_STREAM, 0, sv);
+   _exit(1);
+ }
+-#endif  // defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
++#endif  // defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) ||
++        // defined(__loongarch_lp64)
+ 
+ BPF_TEST_C(BaselinePolicy, EPERM_open, BaselinePolicy) {
+   errno = 0;
+@@ -329,7 +336,7 @@
+ TEST_BASELINE_SIGSYS(__NR_syslog)
+ TEST_BASELINE_SIGSYS(__NR_timer_create)
+ 
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+ TEST_BASELINE_SIGSYS(__NR_inotify_init)
+ TEST_BASELINE_SIGSYS(__NR_vserver)
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc	2024-01-07 13:00:09.908000000 +0800
+@@ -354,6 +354,7 @@
+ 
+ intptr_t SIGSYSFstatatHandler(const struct arch_seccomp_data& args,
+                               void* fs_denied_errno) {
++#if !defined(__loongarch__)
+   if (args.nr == __NR_fstatat_default) {
+     if (*reinterpret_cast<const char*>(args.args[1]) == '\0' &&
+         args.args[3] == static_cast<uint64_t>(AT_EMPTY_PATH)) {
+@@ -362,6 +363,7 @@
+     }
+     return -reinterpret_cast<intptr_t>(fs_denied_errno);
+   }
++#endif
+ 
+   CrashSIGSYS_Handler(args, fs_denied_errno);
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.cc	2024-01-07 12:23:50.556000000 +0800
+@@ -35,8 +35,8 @@
+ #include "sandbox/linux/system_headers/linux_syscalls.h"
+ #include "sandbox/linux/system_headers/linux_time.h"
+ 
+-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+-    !defined(__arm__) && !defined(__aarch64__) &&             \
++#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) &&                \
++    !defined(__arm__) && !defined(__aarch64__) && !defined(__loongarch__) && \
+     !defined(PTRACE_GET_THREAD_AREA)
+ // Also include asm/ptrace-abi.h since ptrace.h in older libc (for instance
+ // the one in Ubuntu 16.04 LTS) is missing PTRACE_GET_THREAD_AREA.
+@@ -460,8 +460,10 @@
+   return Switch(request)
+       .Cases({
+ #if !defined(__aarch64__)
+-                 PTRACE_GETREGS, PTRACE_GETFPREGS, PTRACE_GET_THREAD_AREA,
+-                 PTRACE_GETREGSET,
++                 PTRACE_GETREGS, PTRACE_GETFPREGS, PTRACE_GETREGSET,
++#if !defined(__loongarch_lp64)
++                 PTRACE_GET_THREAD_AREA,
++#endif
+ #endif
+ #if defined(__arm__)
+                  PTRACE_GETVFPREGS,
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.cc	2024-01-08 12:08:11.156000000 +0800
+@@ -103,7 +103,7 @@
+ // Both EPERM and ENOENT are valid errno unless otherwise noted in comment.
+ bool SyscallSets::IsFileSystem(int sysno) {
+   switch (sysno) {
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_access:  // EPERM not a valid errno.
+     case __NR_chmod:
+     case __NR_chown:
+@@ -133,7 +133,9 @@
+ 
+     case __NR_execve:
+     case __NR_faccessat:  // EPERM not a valid errno.
++#if !defined(__loongarch__)
+     case __NR_faccessat2:
++#endif
+     case __NR_fchmodat:
+     case __NR_fchownat:  // Should be called chownat ?
+ #if defined(__x86_64__) || defined(__aarch64__)
+@@ -211,7 +213,11 @@
+ 
+ bool SyscallSets::IsAllowedFileSystemAccessViaFd(int sysno) {
+   switch (sysno) {
++#if !defined(__loongarch__)
+     case __NR_fstat:
++#else
++    case __NR_statx:
++#endif
+     case __NR_ftruncate:
+ #if defined(__i386__) || defined(__arm__) || \
+     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
+@@ -241,7 +247,7 @@
+     case __NR_oldfstat:
+ #endif
+ #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_sync_file_range:  // EPERM not a valid errno.
+ #elif defined(__arm__)
+     case __NR_arm_sync_file_range:  // EPERM not a valid errno.
+@@ -260,7 +266,7 @@
+ #if defined(__i386__) || defined(__arm__)
+     case __NR_fchown32:
+ #endif
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_getdents:    // EPERM not a valid errno.
+ #endif
+     case __NR_getdents64:  // EPERM not a valid errno.
+@@ -339,7 +345,7 @@
+ bool SyscallSets::IsProcessGroupOrSession(int sysno) {
+   switch (sysno) {
+     case __NR_setpgid:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_getpgrp:
+ #endif
+     case __NR_setsid:
+@@ -373,7 +379,7 @@
+     case __NR_rt_sigqueueinfo:
+     case __NR_rt_sigsuspend:
+     case __NR_rt_tgsigqueueinfo:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_signalfd:
+ #endif
+     case __NR_signalfd4:
+@@ -397,12 +403,12 @@
+   switch (sysno) {
+     case __NR_close:
+     case __NR_dup:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_dup2:
+ #endif
+     case __NR_dup3:
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) && defined(__loongarch_lp64)
+     case __NR_shutdown:
+ #endif
+       return true;
+@@ -441,7 +447,7 @@
+       return true;
+     case __NR_clone:  // Should be parameter-restricted.
+     case __NR_setns:  // Privileged.
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_fork:
+ #endif
+ #if defined(__i386__) || defined(__x86_64__)
+@@ -452,7 +458,7 @@
+ #endif
+     case __NR_set_tid_address:
+     case __NR_unshare:
+-#if !defined(__mips__) && !defined(__aarch64__)
++#if !defined(__mips__) && !defined(__aarch64__) && !defined(__loongarch__)
+     case __NR_vfork:
+ #endif
+     default:
+@@ -477,7 +483,7 @@
+ 
+ bool SyscallSets::IsAllowedEpoll(int sysno) {
+   switch (sysno) {
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch__)
+     case __NR_epoll_create:
+     case __NR_epoll_wait:
+ #endif
+@@ -499,7 +505,7 @@
+ bool SyscallSets::IsDeniedGetOrModifySocket(int sysno) {
+   switch (sysno) {
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_accept:
+     case __NR_accept4:
+     case __NR_bind:
+@@ -553,7 +559,7 @@
+     case __NR_mincore:
+     case __NR_mlockall:
+ #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_mmap:
+ #endif
+ #if defined(__i386__) || defined(__arm__) || \
+@@ -586,7 +592,7 @@
+     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
+     case __NR__llseek:
+ #endif
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch__)
+     case __NR_poll:
+ #endif
+     case __NR_ppoll:
+@@ -607,7 +613,7 @@
+     case __NR_recv:
+ #endif
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_recvfrom:  // Could specify source.
+     case __NR_recvmsg:   // Could specify source.
+ #endif
+@@ -622,7 +628,7 @@
+     case __NR_send:
+ #endif
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_sendmsg:  // Could specify destination.
+     case __NR_sendto:   // Could specify destination.
+ #endif
+@@ -671,7 +677,7 @@
+ bool SyscallSets::IsAllowedBasicScheduler(int sysno) {
+   switch (sysno) {
+     case __NR_sched_yield:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_pause:
+ #endif
+     case __NR_nanosleep:
+@@ -755,7 +761,7 @@
+     case __NR_getcpu:
+     case __NR_mbind:
+ #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_migrate_pages:
+ #endif
+     case __NR_move_pages:
+@@ -790,7 +796,7 @@
+   switch (sysno) {
+     case __NR_acct:  // Privileged.
+ #if defined(__i386__) || defined(__x86_64__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch__)
+     case __NR_getrlimit:
+ #endif
+ #if defined(__i386__) || defined(__arm__)
+@@ -825,7 +831,7 @@
+ 
+ bool SyscallSets::IsGlobalSystemStatus(int sysno) {
+   switch (sysno) {
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR__sysctl:
+     case __NR_sysfs:
+ #endif
+@@ -843,7 +849,7 @@
+ 
+ bool SyscallSets::IsEventFd(int sysno) {
+   switch (sysno) {
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_eventfd:
+ #endif
+     case __NR_eventfd2:
+@@ -895,7 +901,8 @@
+ }
+ 
+ #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
+-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
++    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS)) || \
++	defined(__loongarch_lp64)
+ bool SyscallSets::IsSystemVSemaphores(int sysno) {
+   switch (sysno) {
+     case __NR_semctl:
+@@ -914,7 +921,7 @@
+ #endif
+ 
+ #if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || \
+-    defined(__aarch64__) ||                                         \
++    defined(__aarch64__) || defined(__loongarch_lp64) ||            \
+     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
+ // These give a lot of ambient authority and bypass the setuid sandbox.
+ bool SyscallSets::IsSystemVSharedMemory(int sysno) {
+@@ -931,7 +938,8 @@
+ #endif
+ 
+ #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
+-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
++    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))    || \
++    defined(__loongarch_lp64)
+ bool SyscallSets::IsSystemVMessageQueue(int sysno) {
+   switch (sysno) {
+     case __NR_msgctl:
+@@ -962,7 +970,8 @@
+ 
+ bool SyscallSets::IsAnySystemV(int sysno) {
+ #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
+-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
++    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))    || \
++	defined(__loongarch_lp64)
+   return IsSystemVMessageQueue(sysno) || IsSystemVSemaphores(sysno) ||
+          IsSystemVSharedMemory(sysno);
+ #elif defined(__i386__) || \
+@@ -999,7 +1008,7 @@
+ bool SyscallSets::IsInotify(int sysno) {
+   switch (sysno) {
+     case __NR_inotify_add_watch:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_inotify_init:
+ #endif
+     case __NR_inotify_init1:
+@@ -1137,7 +1146,7 @@
+ #if defined(__x86_64__)
+     case __NR_tuxcall:
+ #endif
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_vserver:
+ #endif
+       return true;
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.h b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.h
+--- a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets.h	2024-01-07 13:20:59.020000000 +0800
+@@ -52,7 +52,7 @@
+ #endif
+ 
+ #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch_lp64)
+   static bool IsNetworkSocketInformation(int sysno);
+ #endif
+ 
+@@ -79,18 +79,20 @@
+   static bool IsAsyncIo(int sysno);
+   static bool IsKeyManagement(int sysno);
+ #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
+-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
++    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))    || \
++    defined(__loongarch_lp64)
+   static bool IsSystemVSemaphores(int sysno);
+ #endif
+ #if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || \
+-    defined(__aarch64__) ||                                         \
++    defined(__aarch64__) || defined(__loongarch_lp64) ||            \
+     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
+   // These give a lot of ambient authority and bypass the setuid sandbox.
+   static bool IsSystemVSharedMemory(int sysno);
+ #endif
+ 
+ #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__) || \
+-    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS))
++    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_64_BITS)) ||    \
++    defined(__loongarch_lp64)
+   static bool IsSystemVMessageQueue(int sysno);
+ #endif
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/services/credentials.cc b/src/3rdparty/chromium/sandbox/linux/services/credentials.cc
+--- a/src/3rdparty/chromium/sandbox/linux/services/credentials.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/services/credentials.cc	2024-01-08 11:54:54.048000000 +0800
+@@ -80,7 +80,7 @@
+   pid_t pid = -1;
+   alignas(16) char stack_buf[PTHREAD_STACK_MIN];
+ #if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARM_FAMILY) || \
+-    defined(ARCH_CPU_MIPS_FAMILY)
++    defined(ARCH_CPU_MIPS_FAMILY) || defined(ARCH_CPU_LOONGARCH_FAMILY)
+   // The stack grows downward.
+   void* stack = stack_buf + sizeof(stack_buf);
+ #else
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.cc b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.cc
+--- a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.cc	2024-01-07 13:44:57.316000000 +0800
+@@ -58,7 +58,7 @@
+   if (ctid) MSAN_UNPOISON(ctid, sizeof(*ctid));
+   // See kernel/fork.c in Linux. There is different ordering of sys_clone
+   // parameters depending on CONFIG_CLONE_BACKWARDS* configuration options.
+-#if defined(ARCH_CPU_X86_64)
++#if defined(ARCH_CPU_X86_64)  || defined(ARCH_CPU_LOONG64)
+   return syscall(__NR_clone, flags, child_stack, ptid, ctid, tls);
+ #elif defined(ARCH_CPU_X86) || defined(ARCH_CPU_ARM_FAMILY) || \
+     defined(ARCH_CPU_MIPS_FAMILY)
+@@ -163,10 +163,57 @@
+   return sigaction(signum, act, oldact);
+ }
+ 
++void statx_to_stat(struct kernel_stat* to, struct kernel_statx* from) {
++  memset(to, 0, sizeof(struct kernel_stat));
++  to->st_dev = ((from->stx_dev_minor & 0xff) | (from->stx_dev_major << 8) |
++                ((from->stx_dev_minor & ~0xff) << 12));
++  to->st_rdev = ((from->stx_rdev_minor & 0xff) | (from->stx_rdev_major << 8) |
++                 ((from->stx_rdev_minor & ~0xff) << 12));
++  to->st_ino = from->stx_ino;
++  to->st_mode = from->stx_mode;
++  to->st_nlink = from->stx_nlink;
++  to->st_uid = from->stx_uid;
++  to->st_gid = from->stx_gid;
++  to->st_atime_ = from->stx_atime.tv_sec;
++  to->st_atime_nsec_ = from->stx_atime.tv_nsec;
++  to->st_mtime_ = from->stx_mtime.tv_sec;
++  to->st_mtime_nsec_ = from->stx_mtime.tv_nsec;
++  to->st_ctime_ = from->stx_ctime.tv_sec;
++  to->st_ctime_nsec_ = from->stx_ctime.tv_nsec;
++  to->st_size = from->stx_size;
++  to->st_blocks = from->stx_blocks;
++  to->st_blksize = from->stx_blksize;
++}
++
++int sys_statx(int fd,
++              const char* path,
++              int flags,
++              unsigned int mask,
++              struct kernel_statx* statx_buf) {
++#if defined(__NR_statx)
++  int res;
++  res = syscall(__NR_statx, fd, path, flags, mask, statx_buf);
++  if (res == 0)
++    MSAN_UNPOISON(stat_buf, sizeof(*stat_buf));
++  return res;
++#else  // defined(__NR_statx)
++  RAW_CHECK(false);
++  return -ENOSYS;
++#endif
++}
++
+ int sys_stat(const char* path, struct kernel_stat* stat_buf) {
+   int res;
+ #if !defined(__NR_stat)
++#if defined(__NR_statx)
++  kernel_statx statx_buf;
++  res = sys_statx(AT_FDCWD, path, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS,
++                  &statx_buf);
++  if (res == 0)
++    statx_to_stat(stat_buf, &statx_buf);
++#else  // defined(__NR_statx)
+   res = syscall(__NR_newfstatat, AT_FDCWD, path, stat_buf, 0);
++#endif
+ #else
+   res = syscall(__NR_stat, path, stat_buf);
+ #endif
+@@ -178,7 +225,16 @@
+ int sys_lstat(const char* path, struct kernel_stat* stat_buf) {
+   int res;
+ #if !defined(__NR_lstat)
++#if defined(__NR_statx)
++  kernel_statx statx_buf;
++  int flag = 0;
++  flag = AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW;
++  res = sys_statx(AT_FDCWD, path, flag, STATX_BASIC_STATS, &statx_buf);
++  if (res == 0)
++    statx_to_stat(stat_buf, &statx_buf);
++#else  // defined(__NR_statx)
+   res = syscall(__NR_newfstatat, AT_FDCWD, path, stat_buf, AT_SYMLINK_NOFOLLOW);
++#endif
+ #else
+   res = syscall(__NR_lstat, path, stat_buf);
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.h b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.h
+--- a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers.h	2024-01-07 13:46:33.668000000 +0800
+@@ -18,6 +18,7 @@
+ struct cap_hdr;
+ struct cap_data;
+ struct kernel_stat;
++struct kernel_statx;
+ struct kernel_stat64;
+ 
+ namespace sandbox {
+@@ -91,6 +92,11 @@
+ // architectures, with the same capabilities as stat() and lstat().
+ SANDBOX_EXPORT int sys_stat(const char* path, struct kernel_stat* stat_buf);
+ SANDBOX_EXPORT int sys_lstat(const char* path, struct kernel_stat* stat_buf);
++SANDBOX_EXPORT int sys_statx(int fd,
++                             const char* path,
++                             int flags,
++                             unsigned int mask,
++                             struct kernel_statx* statx_buf);
+ 
+ // Takes care of unpoisoning |stat_buf| for MSAN. Check-fails if fstatat64() is
+ // not a supported syscall on the current platform.
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers_unittest.cc b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/services/syscall_wrappers_unittest.cc	2024-01-07 13:47:20.948000000 +0800
+@@ -99,6 +99,7 @@
+             linux_sigset);
+ }
+ 
++#if !defined(__loongarch_lp64)
+ TEST(SyscallWrappers, Stat) {
+   // Create a file to stat, with 12 bytes of data.
+   ScopedTemporaryFile tmp_file;
+@@ -165,6 +166,7 @@
+   EXPECT_EQ(0u, sb->__unused5);
+ #endif
+ }
++#endif
+ 
+ #if defined(__NR_fstatat64)
+ TEST(SyscallWrappers, Stat64) {
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.cc	2024-01-08 12:05:35.456000000 +0800
+@@ -193,6 +193,21 @@
+                            sizeof(*sb));
+ }
+ 
++int BrokerClient::Statx(const char* pathname,
++                        bool follow_links,
++                        struct kernel_statx* sb) const {
++  if (!pathname || !sb)
++    return -EFAULT;
++
++  if (fast_check_in_client_ &&
++      !CommandStatIsSafe(policy_->allowed_command_set,
++    	                  *policy_->file_permissions, pathname)) {
++    return -policy_->file_permissions->denied_errno();
++  }
++  return StatFamilySyscall(COMMAND_STATX, pathname, follow_links, sb,
++                           sizeof(*sb));
++}
++
+ int BrokerClient::Unlink(const char* path) const {
+   if (!path)
+     return -EFAULT;
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.h b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.h
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_client.h	2024-01-07 13:52:00.044000000 +0800
+@@ -67,6 +67,9 @@
+   int Stat64(const char* pathname,
+              bool follow_links,
+              struct kernel_stat64* sb) const override;
++  int Statx(const char* pathname,
++            bool follow_links,
++            struct kernel_statx* sb) const override;
+   int Unlink(const char* unlink) const override;
+   int InotifyAddWatch(int fd,
+                       const char* pathname,
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_command.h b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_command.h
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_command.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_command.h	2024-01-07 13:52:35.384000000 +0800
+@@ -42,6 +42,7 @@
+   COMMAND_RMDIR,
+   COMMAND_STAT,
+   COMMAND_STAT64,
++  COMMAND_STATX,
+   COMMAND_UNLINK,
+   COMMAND_INOTIFY_ADD_WATCH,
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_host.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_host.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_host.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_host.cc	2024-01-07 13:55:16.748000000 +0800
+@@ -299,7 +299,21 @@
+     RAW_CHECK(reply->AddIntToMessage(0));
+     RAW_CHECK(
+         reply->AddDataToMessage(reinterpret_cast<char*>(&sb), sizeof(sb)));
+-#else  // defined(__NR_fstatat64)
++#elif defined(__NR_statx)
++    DCHECK(command_type == COMMAND_STATX);
++    struct kernel_statx sb;
++
++    int sts = sandbox::sys_statx(AT_FDCWD, file_to_access,
++                                 follow_links ? 0 : AT_SYMLINK_NOFOLLOW,
++                                 STATX_BASIC_STATS, &sb);
++    if (sts < 0) {
++      RAW_CHECK(reply->AddIntToMessage(-errno));
++      return;
++    }
++    RAW_CHECK(reply->AddIntToMessage(0));
++    RAW_CHECK(
++        reply->AddDataToMessage(reinterpret_cast<char*>(&sb), sizeof(sb)));
++#else
+     // We should not reach here on 64-bit systems, as the *stat*64() are only
+     // necessary on 32-bit.
+     RAW_CHECK(false);
+@@ -438,8 +452,9 @@
+       break;
+     }
+     case COMMAND_STAT:
+-    case COMMAND_STAT64: {
+-      const char* requested_filename;
++    case COMMAND_STAT64:
++    case COMMAND_STATX:  {
++	  const char* requested_filename;
+       if (!message->ReadString(&requested_filename)) {
+         return false;
+       }
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process.cc	2024-01-07 13:59:34.336000000 +0800
+@@ -122,44 +122,44 @@
+   // and are default disabled in Android. So, we should refuse to broker them
+   // to be consistent with the platform's restrictions.
+   switch (sysno) {
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_access:
+ #endif
+     case __NR_faccessat:
+     case __NR_faccessat2:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_ACCESS);
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_mkdir:
+ #endif
+     case __NR_mkdirat:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_MKDIR);
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_open:
+ #endif
+     case __NR_openat:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_OPEN);
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_readlink:
+ #endif
+     case __NR_readlinkat:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_READLINK);
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_rename:
+ #endif
+     case __NR_renameat:
+     case __NR_renameat2:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_RENAME);
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_rmdir:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_RMDIR);
+ #endif
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_stat:
+     case __NR_lstat:
+ #endif
+@@ -172,6 +172,9 @@
+ #if defined(__x86_64__) || defined(__aarch64__)
+     case __NR_newfstatat:
+ #endif
++#if defined(__NR_statx)
++    case __NR_statx:
++#endif
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_STAT);
+ 
+ #if defined(__i386__) || defined(__arm__) || \
+@@ -184,7 +187,7 @@
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_STAT);
+ #endif
+ 
+-#if !defined(__aarch64__) && !BUILDFLAG(IS_ANDROID)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64) && !BUILDFLAG(IS_ANDROID)
+     case __NR_unlink:
+       return !fast_check || policy_->allowed_command_set.test(COMMAND_UNLINK);
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process_unittest.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/broker_process_unittest.cc	2024-01-07 14:10:41.044000000 +0800
+@@ -880,6 +880,9 @@
+   unlink(permfile_name);
+ }
+ 
++// Use statx instead of stat,lstat and fstatat on loongarch_lp64 architecture,
++// So not test run TestStatHelper on loongarch_lp64.
++#if !defined(__loongarch_lp64)
+ void TestStatHelper(bool fast_check_in_client, bool follow_links) {
+   ScopedTemporaryFile tmp_file;
+   EXPECT_EQ(12, write(tmp_file.fd(), "blahblahblah", 12));
+@@ -1093,6 +1096,8 @@
+   TestStatHelper(false, false);
+ }
+ 
++#endif
++
+ void TestRenameHelper(bool fast_check_in_client) {
+   std::string oldpath;
+   std::string newpath;
+@@ -1973,7 +1978,10 @@
+ TEST(BrokerProcess, IsSyscallAllowed) {
+   const base::flat_map<BrokerCommand, base::flat_set<int>> kSysnosForCommand = {
+       {COMMAND_ACCESS,
+-       {__NR_faccessat, __NR_faccessat2,
++       {__NR_faccessat, 
++#if !defined(__loongarch_lp64)
++		_NR_faccessat2,
++#endif
+ #if defined(__NR_access) && !BUILDFLAG(IS_ANDROID)
+         __NR_access
+ #endif
+@@ -2034,6 +2042,9 @@
+ #if defined(__NR_stat64)
+            __NR_stat64,
+ #endif
++#if defined(__NR_statx)
++           __NR_statx,
++#endif
+ #if defined(__NR_lstat64)
+            __NR_lstat64,
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/remote_syscall_arg_handler_unittest.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/remote_syscall_arg_handler_unittest.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/remote_syscall_arg_handler_unittest.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/remote_syscall_arg_handler_unittest.cc	2024-01-07 14:12:06.624000000 +0800
+@@ -28,7 +28,11 @@
+ const char kPathPart[] = "/i/am/path";
+ 
+ void FillBufferWithPath(char* buf, size_t size, bool null_terminate) {
++#if defined(__loongarch_lp64)
++  SANDBOX_ASSERT_LE(size, static_cast<size_t>(PATH_MAX * 4));
++#else
+   SANDBOX_ASSERT_LE(size, static_cast<size_t>(PATH_MAX));
++#endif
+   size_t str_len = strlen(kPathPart);
+   size_t len_left_to_write = size;
+   char* curr_buf_pos = buf;
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc	2024-01-07 14:14:18.836000000 +0800
+@@ -26,6 +26,8 @@
+   return Stat64(pathname, follow_links, sb);
+ #elif defined(__NR_newfstatat)
+   return Stat(pathname, follow_links, sb);
++#elif defined(__NR_statx)
++  return Statx(pathname, follow_links, sb);
+ #endif
+ }
+ 
+@@ -169,6 +171,11 @@
+       return Stat64(reinterpret_cast<const char*>(args.args[0]), true,
+                     reinterpret_cast<struct kernel_stat64*>(args.args[1]));
+ #endif
++#if defined(__NR_statx)
++    case __NR_statx:
++      return Statx(reinterpret_cast<const char*>(args.args[0]), true,
++                   reinterpret_cast<struct kernel_statx*>(args.args[1]));
++#endif
+ #if defined(__NR_lstat)
+     case __NR_lstat:
+       // See https://crbug.com/847096
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.h b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.h
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.h	2024-01-07 14:15:06.176000000 +0800
+@@ -49,6 +49,9 @@
+   virtual int Stat64(const char* pathname,
+                      bool follow_links,
+                      struct kernel_stat64* sb) const = 0;
++  virtual int Statx(const char* pathname,
++                    bool follow_links,
++                    struct kernel_statx* sb) const = 0;
+ 
+   // Emulates unlink()/unlinkat().
+   virtual int Unlink(const char* unlink) const = 0;
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_seccomp.h b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_seccomp.h
+--- a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_seccomp.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_seccomp.h	2024-01-07 14:16:10.584000000 +0800
+@@ -39,6 +39,10 @@
+ #define EM_AARCH64 183
+ #endif
+ 
++#ifndef EM_LOONGARCH
++#define EM_LOONGARCH 258
++#endif
++
+ #ifndef __AUDIT_ARCH_64BIT
+ #define __AUDIT_ARCH_64BIT 0x80000000
+ #endif
+@@ -71,6 +75,11 @@
+ #define AUDIT_ARCH_AARCH64 (EM_AARCH64 | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
+ #endif
+ 
++#ifndef AUDIT_ARCH_LOONGARCH64
++#define AUDIT_ARCH_LOONGARCH64 \
++  (EM_LOONGARCH | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
++#endif
++
+ // For prctl.h
+ #ifndef PR_SET_SECCOMP
+ #define PR_SET_SECCOMP               22
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_signal.h b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_signal.h
+--- a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_signal.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_signal.h	2024-01-08 11:55:33.780000000 +0800
+@@ -13,7 +13,7 @@
+ // (not undefined, but defined different values and in different memory
+ // layouts). So, fill the gap here.
+ #if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || \
+-    defined(__aarch64__)
++    defined(__aarch64__) || defined(__loongarch_lp64)
+ 
+ #define LINUX_SIGHUP 1
+ #define LINUX_SIGINT 2
+@@ -103,6 +103,13 @@
+ #endif
+ struct LinuxSigSet {
+   unsigned long sig[_NSIG_WORDS];
++};
++#elif defined(ARCH_CPU_LOONGARCH_FAMILY)
++#if !defined(_NSIG_WORDS)
++#define _NSIG_WORDS 1
++#endif
++struct LinuxSigSet {
++  unsigned long sig[_NSIG_WORDS];
+ };
+ #else
+ typedef uint64_t LinuxSigSet;
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_stat.h b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_stat.h
+--- a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_stat.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_stat.h	2024-01-07 14:23:25.412000000 +0800
+@@ -150,7 +150,7 @@
+   int st_blocks;
+   int st_pad4[14];
+ };
+-#elif defined(__aarch64__)
++#elif defined(__aarch64__) || defined(__loongarch_lp64)
+ struct kernel_stat {
+   unsigned long st_dev;
+   unsigned long st_ino;
+@@ -175,6 +175,37 @@
+ };
+ #endif
+ 
++#if defined(__loongarch_lp64)
++struct kernel_statx_timestamp {
++  long tv_sec;
++  unsigned int tv_nsec;
++  int __reserved;
++};
++struct kernel_statx {
++  unsigned int stx_mask;
++  unsigned int stx_blksize;
++  unsigned long stx_attributes;
++  unsigned int stx_nlink;
++  unsigned int stx_uid;
++  unsigned int stx_gid;
++  unsigned short stx_mode;
++  unsigned short __spare0[1];
++  unsigned long stx_ino;
++  unsigned long stx_size;
++  unsigned long stx_blocks;
++  unsigned long stx_attributes_mask;
++  struct kernel_statx_timestamp stx_atime;
++  struct kernel_statx_timestamp stx_btime;
++  struct kernel_statx_timestamp stx_ctime;
++  struct kernel_statx_timestamp stx_mtime;
++  unsigned int stx_rdev_major;
++  unsigned int stx_rdev_minor;
++  unsigned int stx_dev_major;
++  unsigned int stx_dev_minor;
++  unsigned long __spare2[14];
++};
++#endif
++
+ #if !defined(AT_EMPTY_PATH)
+ #define AT_EMPTY_PATH 0x1000
+ #endif
+@@ -207,6 +238,20 @@
+ #define __NR_fstatat_default __NR_newfstatat
+ #define __NR_fstat_default __NR_fstat
+ 
++#elif defined(__NR_statx)
++
++namespace sandbox {
++using default_stat_struct = struct kernel_statx;
++}  // namespace sandbox
++
++#define AT_STATX_SYNC_TYPE 0x6000
++#define AT_STATX_SYNC_AS_STAT 0x0000
++#define AT_STATX_FORCE_SYNC 0x2000
++#define AT_STATX_DONT_SYNC 0x4000
++#define STATX_ALL 0x00000fffU
++
++#define __NR_statx_default __NR_statx
++
+ #else
+ #error "one of fstatat64 and newfstatat must be defined"
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_syscalls.h b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_syscalls.h
+--- a/src/3rdparty/chromium/sandbox/linux/system_headers/linux_syscalls.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/system_headers/linux_syscalls.h	2024-01-07 14:24:12.220000000 +0800
+@@ -35,5 +35,9 @@
+ #include "sandbox/linux/system_headers/arm64_linux_syscalls.h"
+ #endif
+ 
++#if defined(__loongarch_lp64)
++#include "sandbox/linux/system_headers/loong64_linux_syscalls.h"
++#endif
++
+ #endif  // SANDBOX_LINUX_SYSTEM_HEADERS_LINUX_SYSCALLS_H_
+ 
+diff -uNr a/src/3rdparty/chromium/sandbox/linux/system_headers/loong64_linux_syscalls.h b/src/3rdparty/chromium/sandbox/linux/system_headers/loong64_linux_syscalls.h
+--- a/src/3rdparty/chromium/sandbox/linux/system_headers/loong64_linux_syscalls.h	1970-01-01 08:00:00.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/system_headers/loong64_linux_syscalls.h	2024-01-07 14:26:46.212000000 +0800
+@@ -0,0 +1,1131 @@
++// Copyright 2021 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef SANDBOX_LINUX_SYSTEM_HEADERS_LOONG64_LINUX_SYSCALLS_H_
++#define SANDBOX_LINUX_SYSTEM_HEADERS_LOONG64_LINUX_SYSCALLS_H_
++
++#if !defined(__loongarch__)
++#error "Including header on wrong architecture"
++#endif
++#include <asm/unistd.h>
++
++#if !defined(__NR_io_setup)
++#define __NR_io_setup 0
++#endif
++
++#if !defined(__NR_io_destroy)
++#define __NR_io_destroy 1
++#endif
++
++#if !defined(__NR_io_submit)
++#define __NR_io_submit 2
++#endif
++
++#if !defined(__NR_io_cancel)
++#define __NR_io_cancel 3
++#endif
++
++#if !defined(__NR_io_getevents)
++#define __NR_io_getevents 4
++#endif
++
++#if !defined(__NR_setxattr)
++#define __NR_setxattr 5
++#endif
++
++#if !defined(__NR_lsetxattr)
++#define __NR_lsetxattr 6
++#endif
++
++#if !defined(__NR_fsetxattr)
++#define __NR_fsetxattr 7
++#endif
++
++#if !defined(__NR_getxattr)
++#define __NR_getxattr 8
++#endif
++
++#if !defined(__NR_lgetxattr)
++#define __NR_lgetxattr 9
++#endif
++
++#if !defined(__NR_fgetxattr)
++#define __NR_fgetxattr 10
++#endif
++
++#if !defined(__NR_listxattr)
++#define __NR_listxattr 11
++#endif
++
++#if !defined(__NR_llistxattr)
++#define __NR_llistxattr 12
++#endif
++
++#if !defined(__NR_flistxattr)
++#define __NR_flistxattr 13
++#endif
++
++#if !defined(__NR_removexattr)
++#define __NR_removexattr 14
++#endif
++
++#if !defined(__NR_lremovexattr)
++#define __NR_lremovexattr 15
++#endif
++
++#if !defined(__NR_fremovexattr)
++#define __NR_fremovexattr 16
++#endif
++
++#if !defined(__NR_getcwd)
++#define __NR_getcwd 17
++#endif
++
++#if !defined(__NR_lookup_dcookie)
++#define __NR_lookup_dcookie 18
++#endif
++
++#if !defined(__NR_eventfd2)
++#define __NR_eventfd2 19
++#endif
++
++#if !defined(__NR_epoll_create1)
++#define __NR_epoll_create1 20
++#endif
++
++#if !defined(__NR_epoll_ctl)
++#define __NR_epoll_ctl 21
++#endif
++
++#if !defined(__NR_epoll_pwait)
++#define __NR_epoll_pwait 22
++#endif
++
++#if !defined(__NR_dup)
++#define __NR_dup 23
++#endif
++
++#if !defined(__NR_dup3)
++#define __NR_dup3 24
++#endif
++
++#if !defined(__NR_fcntl)
++#define __NR_fcntl 25
++#endif
++
++#if !defined(__NR_inotify_init1)
++#define __NR_inotify_init1 26
++#endif
++
++#if !defined(__NR_inotify_add_watch)
++#define __NR_inotify_add_watch 27
++#endif
++
++#if !defined(__NR_inotify_rm_watch)
++#define __NR_inotify_rm_watch 28
++#endif
++
++#if !defined(__NR_ioctl)
++#define __NR_ioctl 29
++#endif
++
++#if !defined(__NR_ioprio_set)
++#define __NR_ioprio_set 30
++#endif
++
++#if !defined(__NR_ioprio_get)
++#define __NR_ioprio_get 31
++#endif
++
++#if !defined(__NR_flock)
++#define __NR_flock 32
++#endif
++
++#if !defined(__NR_mknodat)
++#define __NR_mknodat 33
++#endif
++
++#if !defined(__NR_mkdirat)
++#define __NR_mkdirat 34
++#endif
++
++#if !defined(__NR_unlinkat)
++#define __NR_unlinkat 35
++#endif
++
++#if !defined(__NR_symlinkat)
++#define __NR_symlinkat 36
++#endif
++
++#if !defined(__NR_linkat)
++#define __NR_linkat 37
++#endif
++
++#if !defined(__NR_renameat)
++#define __NR_renameat 38
++#endif
++
++#if !defined(__NR_umount2)
++#define __NR_umount2 39
++#endif
++
++#if !defined(__NR_mount)
++#define __NR_mount 40
++#endif
++
++#if !defined(__NR_pivot_root)
++#define __NR_pivot_root 41
++#endif
++
++#if !defined(__NR_nfsservctl)
++#define __NR_nfsservctl 42
++#endif
++
++#if !defined(__NR_statfs)
++#define __NR_statfs 43
++#endif
++
++#if !defined(__NR_fstatfs)
++#define __NR_fstatfs 44
++#endif
++
++#if !defined(__NR_truncate)
++#define __NR_truncate 45
++#endif
++
++#if !defined(__NR_ftruncate)
++#define __NR_ftruncate 46
++#endif
++
++#if !defined(__NR_fallocate)
++#define __NR_fallocate 47
++#endif
++
++#if !defined(__NR_faccessat)
++#define __NR_faccessat 48
++#endif
++
++#if !defined(__NR_chdir)
++#define __NR_chdir 49
++#endif
++
++#if !defined(__NR_fchdir)
++#define __NR_fchdir 50
++#endif
++
++#if !defined(__NR_chroot)
++#define __NR_chroot 51
++#endif
++
++#if !defined(__NR_fchmod)
++#define __NR_fchmod 52
++#endif
++
++#if !defined(__NR_fchmodat)
++#define __NR_fchmodat 53
++#endif
++
++#if !defined(__NR_fchownat)
++#define __NR_fchownat 54
++#endif
++
++#if !defined(__NR_fchown)
++#define __NR_fchown 55
++#endif
++
++#if !defined(__NR_openat)
++#define __NR_openat 56
++#endif
++
++#if !defined(__NR_close)
++#define __NR_close 57
++#endif
++
++#if !defined(__NR_vhangup)
++#define __NR_vhangup 58
++#endif
++
++#if !defined(__NR_pipe2)
++#define __NR_pipe2 59
++#endif
++
++#if !defined(__NR_quotactl)
++#define __NR_quotactl 60
++#endif
++
++#if !defined(__NR_getdents64)
++#define __NR_getdents64 61
++#endif
++
++#if !defined(__NR_lseek)
++#define __NR_lseek 62
++#endif
++
++#if !defined(__NR_read)
++#define __NR_read 63
++#endif
++
++#if !defined(__NR_write)
++#define __NR_write 64
++#endif
++
++#if !defined(__NR_readv)
++#define __NR_readv 65
++#endif
++
++#if !defined(__NR_writev)
++#define __NR_writev 66
++#endif
++
++#if !defined(__NR_pread64)
++#define __NR_pread64 67
++#endif
++
++#if !defined(__NR_pwrite64)
++#define __NR_pwrite64 68
++#endif
++
++#if !defined(__NR_preadv)
++#define __NR_preadv 69
++#endif
++
++#if !defined(__NR_pwritev)
++#define __NR_pwritev 70
++#endif
++
++#if !defined(__NR_sendfile)
++#define __NR_sendfile 71
++#endif
++
++#if !defined(__NR_pselect6)
++#define __NR_pselect6 72
++#endif
++
++#if !defined(__NR_ppoll)
++#define __NR_ppoll 73
++#endif
++
++#if !defined(__NR_signalfd4)
++#define __NR_signalfd4 74
++#endif
++
++#if !defined(__NR_vmsplice)
++#define __NR_vmsplice 75
++#endif
++
++#if !defined(__NR_splice)
++#define __NR_splice 76
++#endif
++
++#if !defined(__NR_tee)
++#define __NR_tee 77
++#endif
++
++#if !defined(__NR_readlinkat)
++#define __NR_readlinkat 78
++#endif
++
++#if defined(__ARCH_WANT_NEW_STAT) || defined(__ARCH_WANT_STAT64)
++#if !defined(__NR_newfstatat)
++#define __NR_newfstatat 79
++#endif
++
++#if !defined(__NR_fstat)
++#define __NR_fstat 80
++#endif
++#endif
++
++#if !defined(__NR_sync)
++#define __NR_sync 81
++#endif
++
++#if !defined(__NR_fsync)
++#define __NR_fsync 82
++#endif
++
++#if !defined(__NR_fdatasync)
++#define __NR_fdatasync 83
++#endif
++
++#if !defined(__NR_sync_file_range)
++#define __NR_sync_file_range 84
++#endif
++
++#if !defined(__NR_timerfd_create)
++#define __NR_timerfd_create 85
++#endif
++
++#if !defined(__NR_timerfd_settime)
++#define __NR_timerfd_settime 86
++#endif
++
++#if !defined(__NR_timerfd_gettime)
++#define __NR_timerfd_gettime 87
++#endif
++
++#if !defined(__NR_utimensat)
++#define __NR_utimensat 88
++#endif
++
++#if !defined(__NR_acct)
++#define __NR_acct 89
++#endif
++
++#if !defined(__NR_capget)
++#define __NR_capget 90
++#endif
++
++#if !defined(__NR_capset)
++#define __NR_capset 91
++#endif
++
++#if !defined(__NR_personality)
++#define __NR_personality 92
++#endif
++
++#if !defined(__NR_exit)
++#define __NR_exit 93
++#endif
++
++#if !defined(__NR_exit_group)
++#define __NR_exit_group 94
++#endif
++
++#if !defined(__NR_waitid)
++#define __NR_waitid 95
++#endif
++
++#if !defined(__NR_set_tid_address)
++#define __NR_set_tid_address 96
++#endif
++
++#if !defined(__NR_unshare)
++#define __NR_unshare 97
++#endif
++
++#if !defined(__NR_futex)
++#define __NR_futex 98
++#endif
++
++#if !defined(__NR_set_robust_list)
++#define __NR_set_robust_list 99
++#endif
++
++#if !defined(__NR_get_robust_list)
++#define __NR_get_robust_list 100
++#endif
++
++#if !defined(__NR_nanosleep)
++#define __NR_nanosleep 101
++#endif
++
++#if !defined(__NR_getitimer)
++#define __NR_getitimer 102
++#endif
++
++#if !defined(__NR_setitimer)
++#define __NR_setitimer 103
++#endif
++
++#if !defined(__NR_kexec_load)
++#define __NR_kexec_load 104
++#endif
++
++#if !defined(__NR_init_module)
++#define __NR_init_module 105
++#endif
++
++#if !defined(__NR_delete_module)
++#define __NR_delete_module 106
++#endif
++
++#if !defined(__NR_timer_create)
++#define __NR_timer_create 107
++#endif
++
++#if !defined(__NR_timer_gettime)
++#define __NR_timer_gettime 108
++#endif
++
++#if !defined(__NR_timer_getoverrun)
++#define __NR_timer_getoverrun 109
++#endif
++
++#if !defined(__NR_timer_settime)
++#define __NR_timer_settime 110
++#endif
++
++#if !defined(__NR_timer_delete)
++#define __NR_timer_delete 111
++#endif
++
++#if !defined(__NR_clock_settime)
++#define __NR_clock_settime 112
++#endif
++
++#if !defined(__NR_clock_gettime)
++#define __NR_clock_gettime 113
++#endif
++
++#if !defined(__NR_clock_getres)
++#define __NR_clock_getres 114
++#endif
++
++#if !defined(__NR_clock_nanosleep)
++#define __NR_clock_nanosleep 115
++#endif
++
++#if !defined(__NR_syslog)
++#define __NR_syslog 116
++#endif
++
++#if !defined(__NR_ptrace)
++#define __NR_ptrace 117
++#endif
++
++#if !defined(__NR_sched_setparam)
++#define __NR_sched_setparam 118
++#endif
++
++#if !defined(__NR_sched_setscheduler)
++#define __NR_sched_setscheduler 119
++#endif
++
++#if !defined(__NR_sched_getscheduler)
++#define __NR_sched_getscheduler 120
++#endif
++
++#if !defined(__NR_sched_getparam)
++#define __NR_sched_getparam 121
++#endif
++
++#if !defined(__NR_sched_setaffinity)
++#define __NR_sched_setaffinity 122
++#endif
++
++#if !defined(__NR_sched_getaffinity)
++#define __NR_sched_getaffinity 123
++#endif
++
++#if !defined(__NR_sched_yield)
++#define __NR_sched_yield 124
++#endif
++
++#if !defined(__NR_sched_get_priority_max)
++#define __NR_sched_get_priority_max 125
++#endif
++
++#if !defined(__NR_sched_get_priority_min)
++#define __NR_sched_get_priority_min 126
++#endif
++
++#if !defined(__NR_sched_rr_get_interval)
++#define __NR_sched_rr_get_interval 127
++#endif
++
++#if !defined(__NR_restart_syscall)
++#define __NR_restart_syscall 128
++#endif
++
++#if !defined(__NR_kill)
++#define __NR_kill 129
++#endif
++
++#if !defined(__NR_tkill)
++#define __NR_tkill 130
++#endif
++
++#if !defined(__NR_tgkill)
++#define __NR_tgkill 131
++#endif
++
++#if !defined(__NR_sigaltstack)
++#define __NR_sigaltstack 132
++#endif
++
++#if !defined(__NR_rt_sigsuspend)
++#define __NR_rt_sigsuspend 133
++#endif
++
++#if !defined(__NR_rt_sigaction)
++#define __NR_rt_sigaction 134
++#endif
++
++#if !defined(__NR_rt_sigprocmask)
++#define __NR_rt_sigprocmask 135
++#endif
++
++#if !defined(__NR_rt_sigpending)
++#define __NR_rt_sigpending 136
++#endif
++
++#if !defined(__NR_rt_sigtimedwait)
++#define __NR_rt_sigtimedwait 137
++#endif
++
++#if !defined(__NR_rt_sigqueueinfo)
++#define __NR_rt_sigqueueinfo 138
++#endif
++
++#if !defined(__NR_rt_sigreturn)
++#define __NR_rt_sigreturn 139
++#endif
++
++#if !defined(__NR_setpriority)
++#define __NR_setpriority 140
++#endif
++
++#if !defined(__NR_getpriority)
++#define __NR_getpriority 141
++#endif
++
++#if !defined(__NR_reboot)
++#define __NR_reboot 142
++#endif
++
++#if !defined(__NR_setregid)
++#define __NR_setregid 143
++#endif
++
++#if !defined(__NR_setgid)
++#define __NR_setgid 144
++#endif
++
++#if !defined(__NR_setreuid)
++#define __NR_setreuid 145
++#endif
++
++#if !defined(__NR_setuid)
++#define __NR_setuid 146
++#endif
++
++#if !defined(__NR_setresuid)
++#define __NR_setresuid 147
++#endif
++
++#if !defined(__NR_getresuid)
++#define __NR_getresuid 148
++#endif
++
++#if !defined(__NR_setresgid)
++#define __NR_setresgid 149
++#endif
++
++#if !defined(__NR_getresgid)
++#define __NR_getresgid 150
++#endif
++
++#if !defined(__NR_setfsuid)
++#define __NR_setfsuid 151
++#endif
++
++#if !defined(__NR_setfsgid)
++#define __NR_setfsgid 152
++#endif
++
++#if !defined(__NR_times)
++#define __NR_times 153
++#endif
++
++#if !defined(__NR_setpgid)
++#define __NR_setpgid 154
++#endif
++
++#if !defined(__NR_getpgid)
++#define __NR_getpgid 155
++#endif
++
++#if !defined(__NR_getsid)
++#define __NR_getsid 156
++#endif
++
++#if !defined(__NR_setsid)
++#define __NR_setsid 157
++#endif
++
++#if !defined(__NR_getgroups)
++#define __NR_getgroups 158
++#endif
++
++#if !defined(__NR_setgroups)
++#define __NR_setgroups 159
++#endif
++
++#if !defined(__NR_uname)
++#define __NR_uname 160
++#endif
++
++#if !defined(__NR_sethostname)
++#define __NR_sethostname 161
++#endif
++
++#if !defined(__NR_setdomainname)
++#define __NR_setdomainname 162
++#endif
++
++#if !defined(__NR_getrlimit)
++#define __NR_getrlimit 163
++#endif
++
++#if !defined(__NR_setrlimit)
++#define __NR_setrlimit 164
++#endif
++
++#if !defined(__NR_getrusage)
++#define __NR_getrusage 165
++#endif
++
++#if !defined(__NR_umask)
++#define __NR_umask 166
++#endif
++
++#if !defined(__NR_prctl)
++#define __NR_prctl 167
++#endif
++
++#if !defined(__NR_getcpu)
++#define __NR_getcpu 168
++#endif
++
++#if !defined(__NR_gettimeofday)
++#define __NR_gettimeofday 169
++#endif
++
++#if !defined(__NR_settimeofday)
++#define __NR_settimeofday 170
++#endif
++
++#if !defined(__NR_adjtimex)
++#define __NR_adjtimex 171
++#endif
++
++#if !defined(__NR_getpid)
++#define __NR_getpid 172
++#endif
++
++#if !defined(__NR_getppid)
++#define __NR_getppid 173
++#endif
++
++#if !defined(__NR_getuid)
++#define __NR_getuid 174
++#endif
++
++#if !defined(__NR_geteuid)
++#define __NR_geteuid 175
++#endif
++
++#if !defined(__NR_getgid)
++#define __NR_getgid 176
++#endif
++
++#if !defined(__NR_getegid)
++#define __NR_getegid 177
++#endif
++
++#if !defined(__NR_gettid)
++#define __NR_gettid 178
++#endif
++
++#if !defined(__NR_sysinfo)
++#define __NR_sysinfo 179
++#endif
++
++#if !defined(__NR_mq_open)
++#define __NR_mq_open 180
++#endif
++
++#if !defined(__NR_mq_unlink)
++#define __NR_mq_unlink 181
++#endif
++
++#if !defined(__NR_mq_timedsend)
++#define __NR_mq_timedsend 182
++#endif
++
++#if !defined(__NR_mq_timedreceive)
++#define __NR_mq_timedreceive 183
++#endif
++
++#if !defined(__NR_mq_notify)
++#define __NR_mq_notify 184
++#endif
++
++#if !defined(__NR_mq_getsetattr)
++#define __NR_mq_getsetattr 185
++#endif
++
++#if !defined(__NR_msgget)
++#define __NR_msgget 186
++#endif
++
++#if !defined(__NR_msgctl)
++#define __NR_msgctl 187
++#endif
++
++#if !defined(__NR_msgrcv)
++#define __NR_msgrcv 188
++#endif
++
++#if !defined(__NR_msgsnd)
++#define __NR_msgsnd 189
++#endif
++
++#if !defined(__NR_semget)
++#define __NR_semget 190
++#endif
++
++#if !defined(__NR_semctl)
++#define __NR_semctl 191
++#endif
++
++#if !defined(__NR_semtimedop)
++#define __NR_semtimedop 192
++#endif
++
++#if !defined(__NR_semop)
++#define __NR_semop 193
++#endif
++
++#if !defined(__NR_shmget)
++#define __NR_shmget 194
++#endif
++
++#if !defined(__NR_shmctl)
++#define __NR_shmctl 195
++#endif
++
++#if !defined(__NR_shmat)
++#define __NR_shmat 196
++#endif
++
++#if !defined(__NR_shmdt)
++#define __NR_shmdt 197
++#endif
++
++#if !defined(__NR_socket)
++#define __NR_socket 198
++#endif
++
++#if !defined(__NR_socketpair)
++#define __NR_socketpair 199
++#endif
++
++#if !defined(__NR_bind)
++#define __NR_bind 200
++#endif
++
++#if !defined(__NR_listen)
++#define __NR_listen 201
++#endif
++
++#if !defined(__NR_accept)
++#define __NR_accept 202
++#endif
++
++#if !defined(__NR_connect)
++#define __NR_connect 203
++#endif
++
++#if !defined(__NR_getsockname)
++#define __NR_getsockname 204
++#endif
++
++#if !defined(__NR_getpeername)
++#define __NR_getpeername 205
++#endif
++
++#if !defined(__NR_sendto)
++#define __NR_sendto 206
++#endif
++
++#if !defined(__NR_recvfrom)
++#define __NR_recvfrom 207
++#endif
++
++#if !defined(__NR_setsockopt)
++#define __NR_setsockopt 208
++#endif
++
++#if !defined(__NR_getsockopt)
++#define __NR_getsockopt 209
++#endif
++
++#if !defined(__NR_shutdown)
++#define __NR_shutdown 210
++#endif
++
++#if !defined(__NR_sendmsg)
++#define __NR_sendmsg 211
++#endif
++
++#if !defined(__NR_recvmsg)
++#define __NR_recvmsg 212
++#endif
++
++#if !defined(__NR_readahead)
++#define __NR_readahead 213
++#endif
++
++#if !defined(__NR_brk)
++#define __NR_brk 214
++#endif
++
++#if !defined(__NR_munmap)
++#define __NR_munmap 215
++#endif
++
++#if !defined(__NR_mremap)
++#define __NR_mremap 216
++#endif
++
++#if !defined(__NR_add_key)
++#define __NR_add_key 217
++#endif
++
++#if !defined(__NR_request_key)
++#define __NR_request_key 218
++#endif
++
++#if !defined(__NR_keyctl)
++#define __NR_keyctl 219
++#endif
++
++#if !defined(__NR_clone)
++#define __NR_clone 220
++#endif
++
++#if !defined(__NR_execve)
++#define __NR_execve 221
++#endif
++
++#if !defined(__NR_mmap)
++#define __NR_mmap 222
++#endif
++
++#if !defined(__NR_fadvise64)
++#define __NR_fadvise64 223
++#endif
++
++#if !defined(__NR_swapon)
++#define __NR_swapon 224
++#endif
++
++#if !defined(__NR_swapoff)
++#define __NR_swapoff 225
++#endif
++
++#if !defined(__NR_mprotect)
++#define __NR_mprotect 226
++#endif
++
++#if !defined(__NR_msync)
++#define __NR_msync 227
++#endif
++
++#if !defined(__NR_mlock)
++#define __NR_mlock 228
++#endif
++
++#if !defined(__NR_munlock)
++#define __NR_munlock 229
++#endif
++
++#if !defined(__NR_mlockall)
++#define __NR_mlockall 230
++#endif
++
++#if !defined(__NR_munlockall)
++#define __NR_munlockall 231
++#endif
++
++#if !defined(__NR_mincore)
++#define __NR_mincore 232
++#endif
++
++#if !defined(__NR_madvise)
++#define __NR_madvise 233
++#endif
++
++#if !defined(__NR_remap_file_pages)
++#define __NR_remap_file_pages 234
++#endif
++
++#if !defined(__NR_mbind)
++#define __NR_mbind 235
++#endif
++
++#if !defined(__NR_get_mempolicy)
++#define __NR_get_mempolicy 236
++#endif
++
++#if !defined(__NR_set_mempolicy)
++#define __NR_set_mempolicy 237
++#endif
++
++#if !defined(__NR_migrate_pages)
++#define __NR_migrate_pages 238
++#endif
++
++#if !defined(__NR_move_pages)
++#define __NR_move_pages 239
++#endif
++
++#if !defined(__NR_rt_tgsigqueueinfo)
++#define __NR_rt_tgsigqueueinfo 240
++#endif
++
++#if !defined(__NR_perf_event_open)
++#define __NR_perf_event_open 241
++#endif
++
++#if !defined(__NR_accept4)
++#define __NR_accept4 242
++#endif
++
++#if !defined(__NR_recvmmsg)
++#define __NR_recvmmsg 243
++#endif
++
++#if !defined(__NR_wait4)
++#define __NR_wait4 260
++#endif
++
++#if !defined(__NR_prlimit64)
++#define __NR_prlimit64 261
++#endif
++
++#if !defined(__NR_fanotify_init)
++#define __NR_fanotify_init 262
++#endif
++
++#if !defined(__NR_fanotify_mark)
++#define __NR_fanotify_mark 263
++#endif
++
++#if !defined(__NR_name_to_handle_at)
++#define __NR_name_to_handle_at 264
++#endif
++
++#if !defined(__NR_open_by_handle_at)
++#define __NR_open_by_handle_at 265
++#endif
++
++#if !defined(__NR_clock_adjtime)
++#define __NR_clock_adjtime 266
++#endif
++
++#if !defined(__NR_syncfs)
++#define __NR_syncfs 267
++#endif
++
++#if !defined(__NR_setns)
++#define __NR_setns 268
++#endif
++
++#if !defined(__NR_sendmmsg)
++#define __NR_sendmmsg 269
++#endif
++
++#if !defined(__NR_process_vm_readv)
++#define __NR_process_vm_readv 270
++#endif
++
++#if !defined(__NR_process_vm_writev)
++#define __NR_process_vm_writev 271
++#endif
++
++#if !defined(__NR_kcmp)
++#define __NR_kcmp 272
++#endif
++
++#if !defined(__NR_finit_module)
++#define __NR_finit_module 273
++#endif
++
++#if !defined(__NR_sched_setattr)
++#define __NR_sched_setattr 274
++#endif
++
++#if !defined(__NR_sched_getattr)
++#define __NR_sched_getattr 275
++#endif
++
++#if !defined(__NR_renameat2)
++#define __NR_renameat2 276
++#endif
++
++#if !defined(__NR_seccomp)
++#define __NR_seccomp 277
++#endif
++
++#if !defined(__NR_getrandom)
++#define __NR_getrandom 278
++#endif
++
++#if !defined(__NR_memfd_create)
++#define __NR_memfd_create 279
++#endif
++
++#if !defined(__NR_bpf)
++#define __NR_bfp 280
++#endif
++
++#if !defined(__NR_execveat)
++#define __NR_execveat 281
++#endif
++
++#if !defined(__NR_userfaultfd)
++#define __NR_userfaultfd 282
++#endif
++
++#if !defined(__NR_membarrier)
++#define __NR_membarrier 283
++#endif
++
++#if !defined(__NR_mlock2)
++#define __NR_mlock2 284
++#endif
++
++#if !defined(__NR_copy_file_range)
++#define __NR_copy_file_range 285
++#endif
++
++#if !defined(__NR_preadv2)
++#define __NR_preadv2 286
++#endif
++
++#if !defined(__NR_pwritev2)
++#define __NR_pwritev2 287
++#endif
++
++#if !defined(__NR_pkey_mprotect)
++#define __NR_pkey_mprotect 288
++#endif
++
++#if !defined(__NR_pkey_alloc)
++#define __NR_pkey_alloc 289
++#endif
++
++#if !defined(__NR_pkey_free)
++#define __NR_pkey_free 290
++#endif
++
++#if !defined(__NR_statx)
++#define __NR_statx 291
++#endif
++
++#if !defined(__NR_io_pgetevents)
++#define __NR_io_pgetevents 292
++#endif
++
++#if !defined(__NR_rseq)
++#define __NR_rseq 293
++#endif
++
++#if !defined(__NR_clone3)
++#define __NR_clone3 435
++#endif
++
++#endif  // SANDBOX_LINUX_SYSTEM_HEADERS_LOONG64_LINUX_SYSCALLS_H_
+diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/bpf_broker_policy_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/bpf_broker_policy_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/bpf_broker_policy_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/bpf_broker_policy_linux.cc	2024-01-07 14:29:07.352000000 +0800
+@@ -87,6 +87,12 @@
+         return Allow();
+       break;
+ #endif
++#if defined(__NR_statx)
++    case __NR_statx:
++      if (allowed_command_set_.test(syscall_broker::COMMAND_STAT))
++        return Allow();
++      break;
++#endif
+ #if defined(__NR_lstat)
+     case __NR_lstat:
+       if (allowed_command_set_.test(syscall_broker::COMMAND_STAT))
+diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/bpf_cros_amd_gpu_policy_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/bpf_cros_amd_gpu_policy_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/bpf_cros_amd_gpu_policy_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/bpf_cros_amd_gpu_policy_linux.cc	2024-01-07 14:29:35.084000000 +0800
+@@ -38,7 +38,7 @@
+     case __NR_sched_setscheduler:
+     case __NR_sysinfo:
+     case __NR_uname:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_readlink:
+     case __NR_stat:
+ #endif
+diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/bpf_gpu_policy_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/bpf_gpu_policy_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/bpf_gpu_policy_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/bpf_gpu_policy_linux.cc	2024-01-07 14:30:28.380000000 +0800
+@@ -80,7 +80,7 @@
+     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
+     case __NR_ftruncate64:
+ #endif
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_getdents:
+ #endif
+     case __NR_getdents64:
+diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/bpf_network_policy_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/bpf_network_policy_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/bpf_network_policy_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/bpf_network_policy_linux.cc	2024-01-06 21:19:14.324000000 +0800
+@@ -255,7 +255,7 @@
+     case __NR_fdatasync:
+     case __NR_fsync:
+     case __NR_mremap:
+-#if !defined(__aarch64__)
++#if !defined(__aarch64__) && !defined(__loongarch_lp64)
+     case __NR_getdents:
+ #endif
+     case __NR_getdents64:
+diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc	2024-01-07 14:31:35.496000000 +0800
+@@ -552,7 +552,11 @@
+   const bpf_dsl::ResultExpr handle_via_broker =
+       bpf_dsl::Trap(syscall_broker::BrokerClient::SIGSYS_Handler,
+                     broker_process_->GetBrokerClientSignalBased());
++#if defined(__loongarch_lp64)
++  if (sysno == __NR_statx_default) {
++#else
+   if (sysno == __NR_fstatat_default) {
++#endif
+     // This may be an fstatat(fd, "", stat_buf, AT_EMPTY_PATH), which should be
+     // rewritten as fstat(fd, stat_buf). This should be consistent with how the
+     // baseline policy handles fstatat().
+diff -uNr a/src/3rdparty/chromium/skia/BUILD.gn b/src/3rdparty/chromium/skia/BUILD.gn
+--- a/src/3rdparty/chromium/skia/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/skia/BUILD.gn	2024-01-06 20:15:33.264000000 +0800
+@@ -783,6 +783,8 @@
+     # Conditional and empty body needed to avoid assert() below.
+   } else if (current_cpu == "riscv64") {
+     # Conditional and empty body needed to avoid assert() below.
++  } else if (current_cpu == "loong64") {
++    # Conditional and empty body needed to avoid assert() below.
+   } else {
+     assert(false, "Unknown cpu target")
+   }
+diff -uNr a/src/3rdparty/chromium/third_party/blink/renderer/platform/graphics/cpu/loongarch64/webgl_image_conversion_lsx.h b/src/3rdparty/chromium/third_party/blink/renderer/platform/graphics/cpu/loongarch64/webgl_image_conversion_lsx.h
+--- a/src/3rdparty/chromium/third_party/blink/renderer/platform/graphics/cpu/loongarch64/webgl_image_conversion_lsx.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/blink/renderer/platform/graphics/cpu/loongarch64/webgl_image_conversion_lsx.h	2024-01-10 17:19:41.532000000 +0800
+@@ -91,19 +91,19 @@
+   v4f32 mask_falpha = __lsx_vffint_s_w(mask_lalpha);
+   v16u8 ra_index = {0,19, 4,23, 8,27, 12,31};
+   for (unsigned i = 0; i < pixels_per_row_trunc; i += 4) {
+-    v16u8 bgra = *((__m128i*)(source));
++    __m128i bgra = *((__m128i*)(source));
+     //if A !=0, A=0; else A=0xFF
+-    v4f32 alpha_factor = __lsx_vseq_b(bgra, mask_zero);
++    __m128i alpha_factor = __lsx_vseq_b(bgra, mask_zero);
+     //if A!=0, A=A; else A=0xFF
+     alpha_factor = __lsx_vor_v(bgra, alpha_factor);
+     alpha_factor = __lsx_vsrli_w(alpha_factor, 24);
+-    alpha_factor = __lsx_vffint_s_w(alpha_factor);
+-    alpha_factor = __lsx_vfdiv_s(mask_falpha, alpha_factor);
++    alpha_factor = (__m128i) __lsx_vffint_s_w(alpha_factor);
++    alpha_factor = (__m128i) __lsx_vfdiv_s((__m128) mask_falpha, (__m128) alpha_factor);
+ 
+-    v16u8 component_r = __lsx_vand_v(bgra, mask_lalpha);
+-    component_r = __lsx_vffint_s_w(component_r);
+-    component_r = __lsx_vfmul_s(component_r, alpha_factor);
+-    component_r = __lsx_vftintrz_w_s(component_r);
++    __m128i component_r = __lsx_vand_v(bgra, mask_lalpha);
++    component_r = (__m128i) __lsx_vffint_s_w(component_r);
++    component_r = (__m128i) __lsx_vfmul_s((__m128) component_r, (__m128) alpha_factor);
++    component_r = __lsx_vftintrz_w_s((__m128) component_r);
+ 
+     v2u64 ra = __lsx_vshuf_b(bgra, component_r, ra_index);
+     __lsx_vstelm_d(ra, destination, 0, 0);
+@@ -138,19 +138,19 @@
+   v4u32 mask_lalpha = __lsx_vreplgr2vr_w(0x0ff);
+   v4f32 mask_falpha = __lsx_vffint_s_w(mask_lalpha);
+   for (unsigned i = 0; i < pixels_per_row_trunc; i += 4) {
+-    v16u8 bgra = *((__m128i*)(source));
++    __m128i bgra = *((__m128i*)(source));
+     //if A !=0, A=0; else A=0xFF
+-    v4f32 alpha_factor = __lsx_vseq_b(bgra, mask_zero);
++    __m128i alpha_factor = __lsx_vseq_b(bgra, mask_zero);
+     //if A!=0, A=A; else A=0xFF
+     alpha_factor = __lsx_vor_v(bgra, alpha_factor);
+     alpha_factor = __lsx_vsrli_w(alpha_factor, 24);
+-    alpha_factor = __lsx_vffint_s_w(alpha_factor);
+-    alpha_factor = __lsx_vfdiv_s(mask_falpha, alpha_factor);
++    alpha_factor = (__m128i) __lsx_vffint_s_w(alpha_factor);
++    alpha_factor = (__m128i) __lsx_vfdiv_s((__m128) mask_falpha, (__m128) alpha_factor);
+ 
+-    v16u8 component_r = __lsx_vand_v(bgra, mask_lalpha);
+-    component_r = __lsx_vffint_s_w(component_r);
+-    component_r = __lsx_vfmul_s(component_r, alpha_factor);
+-    component_r = __lsx_vftintrz_w_s(component_r);
++    __m128i component_r = __lsx_vand_v(bgra, mask_lalpha);
++    component_r = (__m128i) __lsx_vffint_s_w(component_r);
++    component_r = (__m128i) __lsx_vfmul_s((__m128) component_r, (__m128) alpha_factor);
++    component_r = __lsx_vftintrz_w_s((__m128) component_r);
+ 
+     component_r = __lsx_vpickev_b(component_r, component_r);
+     component_r = __lsx_vpickev_b(component_r, component_r);
+@@ -173,41 +173,41 @@
+   v4f32 mask_falpha = __lsx_vffint_s_w(mask_lalpha);
+   v16u8 rgba_index = {0,1,2,19, 4,5,6,23, 8,9,10,27, 12,13,14,31};
+   for (unsigned i = 0; i < pixels_per_row_trunc; i += 4) {
+-    v16u8 bgra = *((__m128i*)(source));
++    __m128i bgra = *((__m128i*)(source));
+     //if A !=0, A=0; else A=0xFF
+-    v4f32 alpha_factor = __lsx_vseq_b(bgra, mask_zero);
++    __m128i alpha_factor = __lsx_vseq_b(bgra, mask_zero);
+     //if A!=0, A=A; else A=0xFF
+     alpha_factor = __lsx_vor_v(bgra, alpha_factor);
+     alpha_factor = __lsx_vsrli_w(alpha_factor, 24);
+-    alpha_factor = __lsx_vffint_s_w(alpha_factor);
+-    alpha_factor = __lsx_vfdiv_s(mask_falpha, alpha_factor);
++    alpha_factor = (__m128i) __lsx_vffint_s_w(alpha_factor);
++    alpha_factor = (__m128i) __lsx_vfdiv_s((__m128) mask_falpha, (__m128) alpha_factor);
+ 
+-    v16u8 bgra_01 = __lsx_vilvl_b(mask_zero, bgra);
+-    v16u8 bgra_23 = __lsx_vilvh_b(mask_zero, bgra);
+-    v16u8 bgra_0 = __lsx_vilvl_b(mask_zero, bgra_01);
+-    v16u8 bgra_1 = __lsx_vilvh_b(mask_zero, bgra_01);
+-    v16u8 bgra_2 = __lsx_vilvl_b(mask_zero, bgra_23);
+-    v16u8 bgra_3 = __lsx_vilvh_b(mask_zero, bgra_23);
+-
+-    bgra_0 = __lsx_vffint_s_w(bgra_0);
+-    bgra_1 = __lsx_vffint_s_w(bgra_1);
+-    bgra_2 = __lsx_vffint_s_w(bgra_2);
+-    bgra_3 = __lsx_vffint_s_w(bgra_3);
+-
+-    v4f32 alpha_factor_0 = __lsx_vreplvei_w(alpha_factor, 0);
+-    v4f32 alpha_factor_1 = __lsx_vreplvei_w(alpha_factor, 1);
+-    v4f32 alpha_factor_2 = __lsx_vreplvei_w(alpha_factor, 2);
+-    v4f32 alpha_factor_3 = __lsx_vreplvei_w(alpha_factor, 3);
+-
+-    bgra_0 = __lsx_vfmul_s(alpha_factor_0, bgra_0);
+-    bgra_1 = __lsx_vfmul_s(alpha_factor_1, bgra_1);
+-    bgra_2 = __lsx_vfmul_s(alpha_factor_2, bgra_2);
+-    bgra_3 = __lsx_vfmul_s(alpha_factor_3, bgra_3);
+-
+-    bgra_0 = __lsx_vftintrz_w_s(bgra_0);
+-    bgra_1 = __lsx_vftintrz_w_s(bgra_1);
+-    bgra_2 = __lsx_vftintrz_w_s(bgra_2);
+-    bgra_3 = __lsx_vftintrz_w_s(bgra_3);
++    __m128i bgra_01 = __lsx_vilvl_b(mask_zero, bgra);
++    __m128i bgra_23 = __lsx_vilvh_b(mask_zero, bgra);
++    __m128i bgra_0 = __lsx_vilvl_b(mask_zero, bgra_01);
++    __m128i bgra_1 = __lsx_vilvh_b(mask_zero, bgra_01);
++    __m128i bgra_2 = __lsx_vilvl_b(mask_zero, bgra_23);
++    __m128i bgra_3 = __lsx_vilvh_b(mask_zero, bgra_23);
++
++    bgra_0 = (__m128i) __lsx_vffint_s_w(bgra_0);
++    bgra_1 = (__m128i) __lsx_vffint_s_w(bgra_1);
++    bgra_2 = (__m128i) __lsx_vffint_s_w(bgra_2);
++    bgra_3 = (__m128i) __lsx_vffint_s_w(bgra_3);
++
++    __m128i alpha_factor_0 = __lsx_vreplvei_w(alpha_factor, 0);
++    __m128i alpha_factor_1 = __lsx_vreplvei_w(alpha_factor, 1);
++    __m128i alpha_factor_2 = __lsx_vreplvei_w(alpha_factor, 2);
++    __m128i alpha_factor_3 = __lsx_vreplvei_w(alpha_factor, 3);
++
++    bgra_0 = (__m128i) __lsx_vfmul_s((__m128) alpha_factor_0, (__m128) bgra_0);
++    bgra_1 = (__m128i) __lsx_vfmul_s((__m128) alpha_factor_1, (__m128) bgra_1);
++    bgra_2 = (__m128i) __lsx_vfmul_s((__m128) alpha_factor_2, (__m128) bgra_2);
++    bgra_3 = (__m128i) __lsx_vfmul_s((__m128) alpha_factor_3, (__m128) bgra_3);
++
++    bgra_0 = __lsx_vftintrz_w_s((__m128) bgra_0);
++    bgra_1 = __lsx_vftintrz_w_s((__m128) bgra_1);
++    bgra_2 = __lsx_vftintrz_w_s((__m128) bgra_2);
++    bgra_3 = __lsx_vftintrz_w_s((__m128) bgra_3);
+ 
+     bgra_01 = __lsx_vpickev_b(bgra_1, bgra_0);
+     bgra_23 = __lsx_vpickev_b(bgra_3, bgra_2);
+diff -uNr a/src/3rdparty/chromium/third_party/boringssl/src/include/openssl/target.h b/src/3rdparty/chromium/third_party/boringssl/src/include/openssl/target.h
+--- a/src/3rdparty/chromium/third_party/boringssl/src/include/openssl/target.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/boringssl/src/include/openssl/target.h	2024-01-08 10:56:02.620000000 +0800
+@@ -43,6 +43,9 @@
+ #elif defined(__riscv) && __SIZEOF_POINTER__ == 8
+ #define OPENSSL_64_BIT
+ #define OPENSSL_RISCV64
++#elif defined(__loongarch__) && __loongarch_grlen == 64
++#define OPENSSL_64_BIT
++#define OPENSSL_LOONG64
+ #elif defined(__riscv) && __SIZEOF_POINTER__ == 4
+ #define OPENSSL_32_BIT
+ #elif defined(__pnacl__)
+diff -uNr a/src/3rdparty/chromium/third_party/breakpad/BUILD.gn b/src/3rdparty/chromium/third_party/breakpad/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/breakpad/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/breakpad/BUILD.gn	2024-01-06 20:54:14.276000000 +0800
+@@ -119,6 +119,8 @@
+         "breakpad/src/processor/stackwalker_arm.h",
+         "breakpad/src/processor/stackwalker_arm64.cc",
+         "breakpad/src/processor/stackwalker_arm64.h",
++        "breakpad/src/processor/stackwalker_loongarch64.cc",
++        "breakpad/src/processor/stackwalker_loongarch64.h",
+         "breakpad/src/processor/stackwalker_mips.cc",
+         "breakpad/src/processor/stackwalker_mips.h",
+         "breakpad/src/processor/stackwalker_ppc.cc",
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/client/crashpad_client_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/client/crashpad_client_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/client/crashpad_client_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/client/crashpad_client_linux.cc	2024-01-06 21:33:33.972000000 +0800
+@@ -728,6 +728,10 @@
+   memset(context->uc_mcontext.__reserved,
+          0,
+          sizeof(context->uc_mcontext.__reserved));
++#elif defined(ARCH_CPU_LOONG64)
++  memset(context->ucontext.uc_mcontext.__extcontext,
++         0,
++         sizeof(struct sctx_info));
+ #endif
+ 
+   siginfo_t siginfo;
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/linux/sys/ptrace.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/linux/sys/ptrace.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/linux/sys/ptrace.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/linux/sys/ptrace.h	2024-01-06 21:34:49.656000000 +0800
+@@ -38,6 +38,10 @@
+ static constexpr __ptrace_request PTRACE_GET_THREAD_AREA_3264 =
+     static_cast<__ptrace_request>(0xc4);
+ #define PTRACE_GET_THREAD_AREA_3264 PTRACE_GET_THREAD_AREA_3264
++#elif defined(__loongarch_lp64)
++static constexpr __ptrace_request PTRACE_GET_THREAD_AREA =
++    static_cast<__ptrace_request>(25);
++#define PTRACE_GET_THREAD_AREA PTRACE_GET_THREAD_AREA
+ #endif
+ #endif  // !PTRACE_GET_THREAD_AREA && !PT_GET_THREAD_AREA && defined(__GLIBC__)
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/non_win/winnt.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/non_win/winnt.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/non_win/winnt.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/compat/non_win/winnt.h	2024-01-06 21:35:33.424000000 +0800
+@@ -67,6 +67,7 @@
+ #define PROCESSOR_ARCHITECTURE_NEUTRAL 11
+ #define PROCESSOR_ARCHITECTURE_ARM64 12
+ #define PROCESSOR_ARCHITECTURE_ARM32_ON_WIN64 13
++#define PROCESSOR_ARCHITECTURE_LOONG64 14
+ #define PROCESSOR_ARCHITECTURE_UNKNOWN 0xffff
+ //! \}
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context.h	2024-01-06 21:39:52.212000000 +0800
+@@ -687,6 +687,56 @@
+   uint32_t fcsr;
+ };
+ 
++//! \brief LOONG64-specifc flags for MinidumpContextLOONG64::context_flags.
++//! Based on minidump_cpu_loong64.h from breakpad
++enum MinidumpContextLOONG64Flags : uint32_t {
++  //! \brief Identifies the context structure as LOONG64.
++  kMinidumpContextLOONG64 = 0x00800000,
++
++  //! \brief Indicates the validity of integer registers.
++  //!
++  //! Registers `0`-`31`, `epc` are valid.
++  kMinidumpContextLOONG64Integer = kMinidumpContextLOONG64 | 0x00000002,
++
++  //! \brief Indicates the validity of floating point registers.
++  //!
++  //! Floating point registers `0`-`31`, `fpcsr` and `fir` are valid
++  kMinidumpContextLOONG64FloatingPoint = kMinidumpContextLOONG64 | 0x00000004,
++
++  //! \brief Indicates the validity of all registers.
++  kMinidumpContextLOONG64All = kMinidumpContextLOONG64Integer |
++                              kMinidumpContextLOONG64FloatingPoint,
++};
++
++//! \brief A LOONG64 CPU context (register state) carried in a minidump file.
++struct MinidumpContextLOONG64 {
++  uint64_t context_flags;
++
++  //! \brief General purpose registers.
++  uint64_t regs[32];
++
++  //! \brief csr_era registers.
++  uint64_t csr_era;
++
++  //! \brief FPU registers.
++  union {
++    struct {
++      float _fp_fregs;
++      uint32_t _fp_pad;
++    } fregs[32];
++    double dregs[32];
++  } fpregs;
++
++  //! \brief Floating-point status and control register.
++  uint64_t fcc;
++
++  //! \brief Floating-point control and status register.
++  uint32_t fcsr;
++
++  //! \brief padding
++  uint32_t _pad;
++};
++
+ }  // namespace crashpad
+ 
+ #endif  // CRASHPAD_MINIDUMP_MINIDUMP_CONTEXT_H_
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.cc	2024-01-06 21:43:05.472000000 +0800
+@@ -109,6 +109,13 @@
+       break;
+     }
+ 
++	case kCPUArchitectureLOONG64: {
++      context = std::make_unique<MinidumpContextLOONG64Writer>();
++      reinterpret_cast<MinidumpContextLOONG64Writer*>(context.get())
++          ->InitializeFromSnapshot(context_snapshot->loong64);
++      break;
++    }
++
+     default: {
+       LOG(ERROR) << "unknown context architecture "
+                  << context_snapshot->architecture;
+@@ -600,5 +607,44 @@
+   DCHECK_GE(state(), kStateFrozen);
+   return sizeof(context_);
+ }
++
++MinidumpContextLOONG64Writer::MinidumpContextLOONG64Writer()
++    : MinidumpContextWriter(), context_() {
++  context_.context_flags = kMinidumpContextLOONG64;
++}
++
++MinidumpContextLOONG64Writer::~MinidumpContextLOONG64Writer() = default;
++
++void MinidumpContextLOONG64Writer::InitializeFromSnapshot(
++    const CPUContextLOONG64* context_snapshot) {
++  DCHECK_EQ(state(), kStateMutable);
++  DCHECK_EQ(context_.context_flags, kMinidumpContextLOONG64);
++
++  context_.context_flags = kMinidumpContextLOONG64All;
++
++  static_assert(sizeof(context_.regs) == sizeof(context_snapshot->regs),
++                "GPRs size mismatch");
++  memcpy(context_.regs, context_snapshot->regs, sizeof(context_.regs));
++  context_.csr_era = context_snapshot->csr_era;
++
++  static_assert(sizeof(context_.fpregs) == sizeof(context_snapshot->fpregs),
++                "FPRs size mismatch");
++  memcpy(context_.fpregs.dregs,
++         context_snapshot->fpregs.dregs,
++         sizeof(context_.fpregs.dregs));
++  context_.fcsr = context_snapshot->fcsr;
++  context_.fcc = context_snapshot->fcc;
++}
++
++bool MinidumpContextLOONG64Writer::WriteObject(
++    FileWriterInterface* file_writer) {
++  DCHECK_EQ(state(), kStateWritable);
++  return file_writer->Write(&context_, sizeof(context_));
++}
++
++size_t MinidumpContextLOONG64Writer::ContextSize() const {
++  DCHECK_GE(state(), kStateFrozen);
++  return sizeof(context_);
++}
+ 
+ }  // namespace crashpad
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer.h	2024-01-06 21:45:40.088000000 +0800
+@@ -413,6 +413,46 @@
+   MinidumpContextRISCV64 context_;
+ };
+ 
++//! \brief The writer for a MinidumpContextLOONG64 structure in a minidump file.
++class MinidumpContextLOONG64Writer final : public MinidumpContextWriter {
++ public:
++  MinidumpContextLOONG64Writer();
++  ~MinidumpContextLOONG64Writer() override;
++
++  //! \brief Initializes the MinidumpContextLOONGARCH based on \a context_snapshot.
++  //!
++  //! \param[in] context_snapshot The context snapshot to use as source data.
++  //!
++  //! \note Valid in #kStateMutable. No mutation of context() may be done before
++  //!     calling this method, and it is not normally necessary to alter
++  //!     context() after calling this method.
++  void InitializeFromSnapshot(const CPUContextLOONG64* context_snapshot);
++
++  //! \brief Returns a pointer to the context structure that this object will
++  //!     write.
++  //!
++  //! \attention This returns a non-`const` pointer to this object’s private
++  //!     data so that a caller can populate the context structure directly.
++  //!     This is done because providing setter interfaces to each field in the
++  //!     context structure would be unwieldy and cumbersome. Care must be taken
++  //!     to populate the context structure correctly. The context structure
++  //!     must only be modified while this object is in the #kStateMutable
++  //!     state.
++  MinidumpContextLOONG64* context() { return &context_; }
++
++ protected:
++  // MinidumpWritable:
++  bool WriteObject(FileWriterInterface* file_writer) override;
++
++  // MinidumpContextWriter:
++  size_t ContextSize() const override;
++
++ private:
++  MinidumpContextLOONG64 context_;
++
++  DISALLOW_COPY_AND_ASSIGN(MinidumpContextLOONG64Writer);
++};
++
+ }  // namespace crashpad
+ 
+ #endif  // CRASHPAD_MINIDUMP_MINIDUMP_CONTEXT_WRITER_H_
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer_test.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer_test.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer_test.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_context_writer_test.cc	2024-01-06 21:50:21.296000000 +0800
+@@ -328,6 +328,24 @@
+                    TypeParam>(context, ExpectMinidumpContextRISCV64, kSeed);
+ }
+ 
++TYPED_TEST(MinidumpContextWriter, LOONG64_Zeros) {
++  EmptyContextTest<MinidumpContextLOONG64Writer,
++                   MinidumpContextLOONG64
++                   TypeParam>(ExpectMinidumpContextLOONG64);
++}
++
++TYPED_TEST(MinidumpContextWriter, LOONG64_FromSnapshot) {
++  constexpr uint32_t kSeed = 64;
++  CPUContextLOONG64 context_loong64;
++  CPUContext context;
++  context.loong64 = &context_loong64;
++  InitializeCPUContextLOONG64(&context, kSeed);
++  FromSnapshotTest<MinidumpContextLOONG64Writer,
++                   MinidumpContextLOONG64
++                   TypeParam>(context, ExpectMinidumpContextLOONG64, kSeed);
++}
++
++
+ }  // namespace
+ }  // namespace test
+ }  // namespace crashpad
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_extensions.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_extensions.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_extensions.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_extensions.h	2024-01-06 21:53:11.040000000 +0800
+@@ -154,6 +154,7 @@
+   kMinidumpCPUArchitectureX86 = PROCESSOR_ARCHITECTURE_INTEL,
+ 
+   kMinidumpCPUArchitectureMIPS = PROCESSOR_ARCHITECTURE_MIPS,
++  kMinidumpCPUArchitectureLOONG64 = PROCESSOR_ARCHITECTURE_LOONG64,
+   kMinidumpCPUArchitectureAlpha = PROCESSOR_ARCHITECTURE_ALPHA,
+ 
+   //! \brief 32-bit PowerPC.
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc	2024-01-06 21:55:33.924000000 +0800
+@@ -177,6 +177,8 @@
+   static constexpr char kCPU[] = "mips64";
+ #elif defined(ARCH_CPU_RISCV64)
+   static constexpr char kCPU[] = "riscv64";
++#elif defined(ARCH_CPU_LOONG64)
++  static constexpr char kCPU[] = "loong64";
+ #else
+ #error define kCPU for this CPU
+ #endif
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc	2024-01-06 21:57:15.864000000 +0800
+@@ -135,6 +135,9 @@
+     case kCPUArchitectureRISCV64:
+       cpu_architecture = kMinidumpCPUArchitectureRISCV64Breakpad;
+       break;
++	case kCPUArchitectureLOONG64:
++      cpu_architecture = kMinidumpCPUArchitectureLOONG64;
++      break;
+     default:
+       NOTREACHED();
+       cpu_architecture = kMinidumpCPUArchitectureUnknown;
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/BUILD.gn b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/BUILD.gn	2024-01-06 22:04:14.224000000 +0800
+@@ -468,7 +468,7 @@
+   }
+ 
+   if ((crashpad_is_linux || crashpad_is_android || crashpad_is_fuchsia) &&
+-      target_cpu != "mipsel" && target_cpu != "mips64el") {
++      target_cpu != "mipsel" && target_cpu != "mips64el" && target_cpu != "loong64") {
+     data_deps += [ ":crashpad_snapshot_test_both_dt_hash_styles" ]
+   }
+ 
+@@ -551,7 +551,7 @@
+ }
+ 
+ if ((crashpad_is_linux || crashpad_is_android || crashpad_is_fuchsia) &&
+-    target_cpu != "mipsel" && target_cpu != "mips64el") {
++    target_cpu != "mipsel" && target_cpu != "mips64el" && target_cpu != "loong64" ) {
+   crashpad_loadable_module("crashpad_snapshot_test_both_dt_hash_styles") {
+     testonly = true
+     sources = [ "hash_types_test.cc" ]
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/capture_memory.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/capture_memory.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/capture_memory.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/capture_memory.cc	2024-01-06 22:05:11.748000000 +0800
+@@ -122,6 +122,10 @@
+   for (size_t i = 0; i < std::size(context.riscv64->regs); ++i) {
+     MaybeCaptureMemoryAround(delegate, context.riscv64->regs[i]);
+   }
++#elif defined(ARCH_CPU_LOONG64)
++  for (size_t i = 0; i < std::size(context.loong64->regs); ++i) {
++    MaybeCaptureMemoryAround(delegate, context.loong64->regs[i]);
++  }
+ #else
+ #error Port.
+ #endif
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_architecture.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_architecture.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_architecture.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_architecture.h	2024-01-06 22:06:01.484000000 +0800
+@@ -47,6 +47,9 @@
+ 
+   //! \brief 64-bit RISC-V.
+   kCPUArchitectureRISCV64,
++
++  //! \brief 64-bit LOONGARCH.
++  kCPUArchitectureLOONG64,
+ };
+ 
+ }  // namespace crashpad
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.cc	2024-01-06 22:07:56.600000000 +0800
+@@ -173,6 +173,8 @@
+       return arm64->pc;
+     case kCPUArchitectureRISCV64:
+       return riscv64->pc;
++	case kCPUArchitectureLOONG64:
++      return loong64->csr_era;
+     default:
+       NOTREACHED();
+       return ~0ull;
+@@ -191,6 +193,8 @@
+       return arm64->sp;
+     case kCPUArchitectureRISCV64:
+       return riscv64->regs[1];
++	case kCPUArchitectureLOONG64:
++      return loong64->regs[3];
+     default:
+       NOTREACHED();
+       return ~0ull;
+@@ -232,6 +236,7 @@
+     case kCPUArchitectureARM64:
+     case kCPUArchitectureMIPS64EL:
+     case kCPUArchitectureRISCV64:
++    case kCPUArchitectureLOONG64:
+       return true;
+     case kCPUArchitectureX86:
+     case kCPUArchitectureARM:
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/cpu_context.h	2024-01-06 22:10:03.944000000 +0800
+@@ -371,6 +371,23 @@
+   uint32_t fcsr;
+ };
+ 
++//! \brief A context structure carrying LOONG64 CPU state.
++struct CPUContextLOONG64 {
++  uint64_t regs[32];
++  uint64_t csr_era;
++  union {
++    double dregs[32];
++    struct {
++      float _fp_fregs;
++      uint32_t _fp_pad;
++    } fregs[32];
++  } fpregs;
++  uint64_t fcc;
++  uint32_t fcsr;
++  uint32_t _pad;
++};
++
++
+ //! \brief A context structure capable of carrying the context of any supported
+ //!     CPU architecture.
+ struct CPUContext {
+@@ -412,6 +429,7 @@
+     CPUContextMIPS* mipsel;
+     CPUContextMIPS64* mips64;
+     CPUContextRISCV64* riscv64;
++	CPUContextLOONG64* loong64;
+   };
+ };
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.cc	2024-01-06 22:19:12.540000000 +0800
+@@ -281,6 +281,41 @@
+   context->fcsr = float_context.fcsr;
+ }
+ 
++#elif defined(ARCH_CPU_LOONG64)
++
++void InitializeCPUContextLOONG64_NoFloatingPoint(
++    const ThreadContext::t64_t& thread_context,
++    CPUContextLOONG64* context) {
++  static_assert(sizeof(context->regs) == sizeof(thread_context.regs),
++                "gpr context size mismtach");
++  memcpy(context->regs, thread_context.regs, sizeof(context->regs));
++  context->csr_era = thread_context.csr_era;
++
++  memset(&context->fpregs, 0, sizeof(context->fpregs));
++  context->fcc = 0;
++  context->fcsr = 0;
++}
++
++void InitializeCPUContextLOONG64_OnlyFPU(
++    const FloatContext::f64_t& float_context,
++    CPUContextLOONG64* context) {
++  static_assert(sizeof(context->fpregs) == sizeof(float_context.fpregs),
++                "fpu context size mismatch");
++  memcpy(&context->fpregs, &float_context.fpregs, sizeof(context->fpregs));
++  context->fcc = float_context.fcc;
++  context->fcsr = float_context.fcsr;
++}
++
++void InitializeCPUContextLOONG64(
++    const ThreadContext::t64_t& thread_context,
++    const FloatContext::f64_t& float_context,
++    CPUContextLOONG64* context) {
++  InitializeCPUContextLOONG64_NoFloatingPoint(thread_context, context);
++
++  InitializeCPUContextLOONG64_OnlyFPU(float_context, context);
++}
++
++
+ #endif  // ARCH_CPU_X86_FAMILY
+ 
+ }  // namespace internal
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/cpu_context_linux.h	2024-01-06 22:21:11.520000000 +0800
+@@ -188,6 +188,44 @@
+ 
+ #endif  // ARCH_CPU_RISCV64 || DOXYGEN
+ 
++#if defined(ARCH_CPU_LOONG64) || DOXYGEN
++
++//! \brief Initializes GPR state in a CPUContextLOONG64 from a native context
++//!     structure on Linux.
++//!
++//! Floating point state is initialized to zero.
++//!
++//! \param[in] thread_context The native thread context.
++//! \param[out] context The CPUContextLOONG64 structure to initialize.
++void InitializeCPUContextLOONG64_NoFloatingPoint(
++    const ThreadContext::t64_t& thread_context,
++    CPUContextLOONG64* context);
++//! \brief Initializes FPU state in a CPUContextLOONG64 from a native fpu
++//!     signal context structure on Linux.
++//!
++//! General purpose registers are not initialized.
++//!
++//! \param[in] float_context The native fpu context.
++//! \param[out] context The CPUContextLOONG64 structure to initialize.
++void InitializeCPUContextLOONG64_OnlyFPU(
++    const FloatContext::f64_t& float_context,
++    CPUContextLOONG64* context);
++//! \brief Initializes a CPUContextLOONG64 structure from native context
++//!     structures on Linux.
++//!
++//! This function has template specializations for LOONG64 architecture
++//! contexts, using ContextTraits32 or ContextTraits64 as template parameter,
++//! respectively.
++//!
++//! \param[in] thread_context The native thread context.
++//! \param[in] float_context The native float context.
++//! \param[out] context The CPUContextLOONG64 structure to initialize.
++void InitializeCPUContextLOONG64(
++    const ThreadContext::t64_t& thread_context,
++    const FloatContext::f64_t& float_context,
++    CPUContextLOONG64* context);
++#endif  // ARCH_CPU_LOONG64 || DOXYGEN
++
+ }  // namespace internal
+ }  // namespace crashpad
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.cc	2024-01-06 22:30:27.320000000 +0800
+@@ -367,6 +367,79 @@
+   return internal::ReadContext(reader, context_address, context_.riscv64);
+ }
+ 
++#elif defined(ARCH_CPU_LOONG64)
++
++template <typename Traits>
++static bool ReadContext(ProcessReaderLinux* reader,
++                        LinuxVMAddress context_address,
++                        typename Traits::CPUContext* dest_context) {
++  const ProcessMemory* memory = reader->Memory();
++  LinuxVMAddress gregs_address = context_address +
++                                 offsetof(UContext<Traits>, mcontext);
++  ThreadContext::t64_t thread_context;
++  typename Traits::MContext mcontext;
++  if (!memory->Read(gregs_address, sizeof(mcontext), &mcontext)) {
++    LOG(ERROR) << "Couldn't read gregs";
++    return false;
++  }
++  static_assert(sizeof(thread_context.regs) == sizeof(mcontext.gregs),
++                "gpr context size mismtach");
++  memcpy(thread_context.regs, mcontext.gregs, sizeof(mcontext.gregs));
++  thread_context.csr_era = mcontext.pc;
++  thread_context.orig_a0 = 0;
++  thread_context.csr_badv = 0;
++  InitializeCPUContextLOONG64_NoFloatingPoint(thread_context, dest_context);
++  LinuxVMAddress reserved_address =
++        context_address + offsetof(UContext<Traits>, mcontext.extcontext);
++  if ((reserved_address & 15) != 0) {
++    LOG(ERROR) << "invalid alignment 0x" << std::hex << reserved_address;
++    return false;
++   }
++  constexpr VMSize kMaxContextSpace = 4096;
++  ProcessMemoryRange range;
++  if (!range.Initialize(memory, true, reserved_address, kMaxContextSpace)) {
++    return false;
++  }
++  do {
++    struct sctx_info head;
++    if (!range.Read(reserved_address, sizeof(head), &head)) {
++      LOG(ERROR) << "missing context terminator";
++      return false;
++    }
++    reserved_address += sizeof(head);
++    switch (head.magic) {
++      case FPU_CTX_MAGIC:
++        if (head.size != sizeof(struct fpu_context) + sizeof(head)) {
++          LOG(ERROR) << "unexpected fpu context size " << head.size;
++          return false;
++        }
++        FloatContext::f64_t fpucontext;
++        if (!range.Read(reserved_address, sizeof(fpucontext), &fpucontext)) {
++          LOG(ERROR) << "Couldn't read fpu " << head.size;
++          return false;
++        }
++        InitializeCPUContextLOONG64_OnlyFPU(fpucontext, dest_context);
++        return true;
++      case 0:
++        return true;
++      default:
++        LOG(ERROR) << "invalid magic number 0x" << std::hex << head.magic;
++        return false;
++    }
++  } while (true);
++}
++
++template <>
++bool ExceptionSnapshotLinux::ReadContext<ContextTraits64>(
++    ProcessReaderLinux* reader,
++    LinuxVMAddress context_address) {
++  context_.architecture = kCPUArchitectureLOONG64;
++  context_.loong64 = &context_union_.loong64;
++
++  return internal::ReadContext<ContextTraits64>(
++      reader, context_address, context_.loong64);
++}
++
+ #endif  // ARCH_CPU_X86_FAMILY
+ 
+ bool ExceptionSnapshotLinux::Initialize(
+@@ -397,7 +470,7 @@
+       return false;
+     }
+   } else {
+-#if !defined(ARCH_CPU_RISCV64)
++#if !defined(ARCH_CPU_RISCV64) && !defined(ARCH_CPU_LOONG64)
+     if (!ReadContext<ContextTraits32>(process_reader, context_address) ||
+         !ReadSiginfo<Traits32>(process_reader, siginfo_address)) {
+       return false;
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux.h	2024-01-06 22:32:00.712000000 +0800
+@@ -91,6 +91,8 @@
+     CPUContextMIPS64 mips64;
+ #elif defined(ARCH_CPU_RISCV64)
+     CPUContextRISCV64 riscv64;
++#elif defined(ARCH_CPU_LOONG64)
++    CPUContextLOONG64 loong64;
+ #endif
+   } context_union_;
+   CPUContext context_;
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux_test.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux_test.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux_test.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/exception_snapshot_linux_test.cc	2024-01-06 22:34:22.168000000 +0800
+@@ -326,6 +326,25 @@
+             0);
+ }
+ 
++#elif defined(ARCH_CPU_LOONG64)
++struct NativeCPUContext {
++  ucontext_t ucontext;
++  struct sctx_info info;
++};
++void InitializeContext(NativeCPUContext* context) {
++  for (size_t reg = 0; reg < std::size(context->ucontext.uc_mcontext.__gregs); ++reg) {
++    context->ucontext.uc_mcontext.__gregs[reg] = reg;
++  }
++  context->info.magic = 0;
++  context->info.size = 0;
++}
++void ExpectContext(const CPUContext& actual, const NativeCPUContext& expected) {
++  EXPECT_EQ(actual.architecture, kCPUArchitectureLOONG64);
++  for (size_t reg = 0; reg < std::size(expected.ucontext.uc_mcontext.__gregs); ++reg) {
++    EXPECT_EQ(actual.loongarch64->regs[reg], expected.ucontext.uc_mcontext.__gregs[reg]);
++  }
++}
++
+ #else
+ #error Port.
+ #endif
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/signal_context.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/signal_context.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/signal_context.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/signal_context.h	2024-01-06 22:42:23.704000000 +0800
+@@ -41,8 +41,8 @@
+ template <class Traits>
+ struct Siginfo {
+   int32_t signo;
+-#ifdef ARCH_CPU_MIPS_FAMILY
+-  // Attribute order for signo_t defined in kernel is different for MIPS.
++#if defined(ARCH_CPU_MIPS_FAMILY) || defined(ARCH_CPU_LOONG64_FAMILY)
++  // Attribute order for signo_t defined in kernel is different for MIPS/LOONG64.
+   int32_t code;
+   int32_t err;
+ #else
+@@ -456,6 +456,45 @@
+                   offsetof(ucontext_t, uc_mcontext.__fpregs),
+               "context offset mismatch");
+ 
++#elif defined(ARCH_CPU_LOONG64)
++
++struct MContext64 {
++  uint64_t pc;
++  uint64_t gregs[32];
++  uint32_t flags;
++  uint32_t pading;
++  uint64_t extcontext[0] __attribute__((__aligned__(16)));
++};
++
++struct ContextTraits64 : public Traits64 {
++  using MContext = MContext64;
++  using SignalThreadContext = ThreadContext::t64_t;
++  using SignalFloatContext = FloatContext::f64_t;
++  using CPUContext = CPUContextLOONG64;
++};
++
++template <typename Traits>
++struct UContext {
++  typename Traits::ULong flags;
++  typename Traits::Address link;
++  SignalStack<Traits> stack;
++  Sigset<Traits> sigmask;
++  char padding[128 - sizeof(sigmask)];
++  uint64_t pading1;
++  typename Traits::MContext mcontext;
++};
++
++static_assert(offsetof(UContext<ContextTraits64>, mcontext) ==
++                  offsetof(ucontext_t, uc_mcontext),
++              "context offset mismtach");
++static_assert(offsetof(UContext<ContextTraits64>, mcontext.gregs) ==
++                  offsetof(ucontext_t, uc_mcontext.__gregs),
++              "context offset mismatch");
++static_assert(offsetof(UContext<ContextTraits64>, mcontext.extcontext) ==
++                  offsetof(ucontext_t, uc_mcontext.__extcontext),
++              "context offset mismatch");
++
++
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/system_snapshot_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/system_snapshot_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/system_snapshot_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/system_snapshot_linux.cc	2024-01-06 22:45:30.376000000 +0800
+@@ -207,6 +207,8 @@
+                                     : kCPUArchitectureMIPSEL;
+ #elif defined(ARCH_CPU_RISCV64)
+   return kCPUArchitectureRISCV64;
++#elif defined(ARCH_CPU_LOONG64)
++  return kCPUArchitectureLOONG64;
+ #else
+ #error port to your architecture
+ #endif
+@@ -223,7 +225,10 @@
+   // Not implementable on MIPS
+   return 0;
+ #elif defined(ARCH_CPU_RISCV64)
+-  // Not implemented
++  // Not implemented on RISCV64
++  return 0;
++#elif defined(ARCH_CPU_LOONG64)
++  // Not implementable on LOONG64
+   return 0;
+ #else
+ #error port to your architecture
+@@ -246,7 +251,10 @@
+   // Not implementable on MIPS
+   return std::string();
+ #elif defined(ARCH_CPU_RISCV64)
+-  // Not implemented
++  // Not implemented on RISCV64
++  return std::string();
++#elif defined(ARCH_CPU_LOONG64)
++  // Not implementable on LOONG64
+   return std::string();
+ #else
+ #error port to your architecture
+@@ -382,7 +390,10 @@
+   // Not implementable on MIPS
+   return false;
+ #elif defined(ARCH_CPU_RISCV64)
+-  // Not implemented
++  // Not implemented on RISCV64
++  return false;
++#elif defined(ARCH_CPU_LOONG64)
++  // Not implementable on LOONG64
+   return false;
+ #else
+ #error Port.
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/test_modules.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/test_modules.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/test_modules.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/test_modules.cc	2024-01-06 22:48:43.964000000 +0800
+@@ -112,11 +112,15 @@
+   module.ehdr.e_machine = EM_MIPS;
+ #elif defined(ARCH_CPU_RISCV64)
+   module.ehdr.e_machine = EM_RISCV;
++#elif defined(ARCH_CPU_LOONG64)
++  module.ehdr.e_machine = EM_LOONGARCH;
+ #endif
+ 
+ #if defined(ARCH_CPU_RISCV64)
+   // Crashpad supports RV64GC
+   module.ehdr.e_flags = EF_RISCV_RVC | EF_RISCV_FLOAT_ABI_DOUBLE;
++#elif defined(ARCH_CPU_LOONG64)
++  module.ehdr.e_flags |= EF_LARCH_ABI_LP64;
+ #endif
+ 
+   module.ehdr.e_version = EV_CURRENT;
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.cc	2024-01-06 22:49:38.556000000 +0800
+@@ -196,6 +196,12 @@
+   InitializeCPUContextRISCV64(thread.thread_info.thread_context.t64,
+                               thread.thread_info.float_context.f64,
+                               context_.riscv64);
++#elif defined(ARCH_CPU_LOONG64)
++  context_.architecture = kCPUArchitectureLOONG64;
++  context_.loong64 = &context_union_.loong64;
++  InitializeCPUContextLOONG64(thread.thread_info.thread_context.t64,
++      thread.thread_info.float_context.f64,
++      context_.loong64);
+ #else
+ #error Port.
+ #endif
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/linux/thread_snapshot_linux.h	2024-01-06 22:50:26.116000000 +0800
+@@ -76,6 +76,8 @@
+     CPUContextMIPS64 mips64;
+ #elif defined(ARCH_CPU_RISCV64)
+     CPUContextRISCV64 riscv64;
++#elif defined(ARCH_CPU_LOONG64)
++    CPUContextLOONG64 loong64;
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/minidump_context_converter.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/minidump_context_converter.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/minidump_context_converter.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/minidump_context_converter.cc	2024-01-06 22:52:30.452000000 +0800
+@@ -292,7 +292,31 @@
+                   "FPR size mismatch");
+     memcpy(&context_.riscv64->fpregs, &src->fpregs, sizeof(src->fpregs));
+ 
+-    context_.riscv64->fcsr = src->fcsr;
++    context_.riscv64->fcsr = src->fcsr;  
++  } else if (context_.architecture ==
++             CPUArchitecture::kCPUArchitectureLOONG64) {
++    context_memory_.resize(sizeof(CPUContextLOONG64));
++    context_.loong64 =
++        reinterpret_cast<CPUContextLOONG64*>(context_memory_.data());
++    const MinidumpContextLOONG64* src =
++        reinterpret_cast<const MinidumpContextLOONG64*>(minidump_context.data());
++    if (minidump_context.size() < sizeof(MinidumpContextLOONG64)) {
++      return false;
++    }
++
++    if (!(src->context_flags & kMinidumpContextLOONG64)) {
++      return false;
++    }
++
++    for (size_t i = 0; i < std::size(src->regs); i++) {
++      context_.loong64->regs[i] = src->regs[i];
++    }
++
++    context_.loong64->csr_era = src->csr_era;
++    context_.loong64->fcsr = src->fcsr;
++    context_.loong64->fcc = src->fcc;
++
++    memcpy(&context_.loong64->fpregs, &src->fpregs, sizeof(src->fpregs));
+   } else {
+     // Architecture is listed as "unknown".
+     DLOG(ERROR) << "Unknown architecture";
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/system_snapshot_minidump.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/system_snapshot_minidump.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/system_snapshot_minidump.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/snapshot/minidump/system_snapshot_minidump.cc	2024-01-06 22:56:07.384000000 +0800
+@@ -70,7 +70,8 @@
+     // No word on how MIPS64 is signalled
+     case kMinidumpCPUArchitectureRISCV64Breakpad:
+       return kCPUArchitectureRISCV64;
+-
++	case kMinidumpCPUArchitectureLOONG64:
++      return kCPUArchitectureLOONG64;
+     default:
+       return CPUArchitecture::kCPUArchitectureUnknown;
+   }
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/ptracer.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/ptracer.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/ptracer.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/ptracer.cc	2024-01-08 12:16:42.456000000 +0800
+@@ -429,6 +429,60 @@
+   return true;
+ }
+ 
++#elif defined(ARCH_CPU_LOONGARCH64)
++
++#include <asm/ptrace.h>
++
++bool GetFloatingPointRegisters32(pid_t tid,
++                                 FloatContext* context,
++                                 bool can_log) {
++  return false;
++}
++
++bool GetFloatingPointRegisters64(pid_t tid,
++                                 FloatContext* context,
++                                 bool can_log) {
++  iovec iov;
++  iov.iov_base = context;
++  iov.iov_len = sizeof(*context);
++  if (ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(NT_PRFPREG), &iov) != 0) {
++    PLOG_IF(ERROR, can_log) << "ptrace";
++    return false;
++  }
++  if (iov.iov_len != sizeof(context->f64)) {
++    LOG_IF(ERROR, can_log) << "Unexpected registers size " << iov.iov_len
++                           << " != " << sizeof(context->f64);
++    return false;
++  }
++
++  return true;
++}
++
++bool GetThreadArea32(pid_t tid,
++                     const ThreadContext& context,
++                     LinuxVMAddress* address,
++                     bool can_log) {
++  return false;
++}
++
++bool GetThreadArea64(pid_t tid,
++                     const ThreadContext& context,
++                     LinuxVMAddress* address,
++                     bool can_log) {
++  struct user_pt_regs loongarch_regs;
++  struct iovec iov = {
++     .iov_base = &loongarch_regs,
++     .iov_len = sizeof(loongarch_regs)
++  };
++
++  if (ptrace(PTRACE_GETREGSET, tid, NT_PRSTATUS, &iov) != 0) {
++    PLOG_IF(ERROR, can_log) << "ptrace";
++    return false;
++  }
++  *address = loongarch_regs.regs[2];
++  return true;
++}
++
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/thread_info.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/thread_info.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/thread_info.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/linux/thread_info.h	2024-01-08 12:15:33.868000000 +0800
+@@ -87,6 +87,8 @@
+     uint32_t padding1_;
+ #elif defined(ARCH_CPU_RISCV64)
+     // 32 bit RISC-V not supported
++#elif defined(ARCH_CPU_LOONGARCH64)
++    // Nothing.
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+@@ -144,6 +146,13 @@
+     // Reflects user_regs_struct in asm/ptrace.h.
+     uint64_t pc;
+     uint64_t regs[31];
++#elif defined(ARCH_CPU_LOONGARCH64)
++    // Reflects user_regs_struct in sys/user.h.
++    uint64_t regs[32];
++    uint64_t orig_a0;
++    uint64_t csr_era;
++    uint64_t csr_badv;
++    uint64_t reserved[10];
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+@@ -154,13 +163,13 @@
+   using NativeThreadContext = user_regs_struct;
+ #elif defined(ARCH_CPU_ARMEL)
+   using NativeThreadContext = user_regs;
+-#elif defined(ARCH_CPU_MIPS_FAMILY)
++#elif defined(ARCH_CPU_MIPS_FAMILY) || defined (ARCH_CPU_LOONGARCH64)
+ // No appropriate NativeThreadsContext type available for MIPS
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY || ARCH_CPU_ARM64 || ARCH_CPU_RISCV64
+ 
+-#if !defined(ARCH_CPU_MIPS_FAMILY)
++#if !defined(ARCH_CPU_MIPS_FAMILY) && !defined(ARCH_CPU_LOONGARCH64)
+ #if defined(ARCH_CPU_32_BITS)
+   static_assert(sizeof(t32_t) == sizeof(NativeThreadContext), "Size mismatch");
+ #else  // ARCH_CPU_64_BITS
+@@ -233,6 +242,8 @@
+     uint32_t fpu_id;
+ #elif defined(ARCH_CPU_RISCV64)
+     // 32 bit RISC-V not supported
++#elif defined(ARCH_CPU_LOONGARCH64)
++    // Nothing.
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+@@ -271,6 +282,11 @@
+     // Reflects __riscv_d_ext_state in asm/ptrace.h
+     uint64_t fpregs[32];
+     uint64_t fcsr;
++#elif defined(ARCH_CPU_LOONGARCH64)
++    double fpregs[32];
++    uint64_t fcc;
++    uint32_t fcsr;
++    uint32_t _pad;
+ #else
+ #error Port.
+ #endif  // ARCH_CPU_X86_FAMILY
+@@ -298,7 +314,7 @@
+ #endif
+ #elif defined(ARCH_CPU_ARM64)
+   static_assert(sizeof(f64) == sizeof(user_fpsimd_struct), "Size mismatch");
+-#elif defined(ARCH_CPU_MIPS_FAMILY)
++#elif defined(ARCH_CPU_MIPS_FAMILY) || defined (ARCH_CPU_LOONGARCH64)
+ // No appropriate floating point context native type for available MIPS.
+ #elif defined(ARCH_CPU_RISCV64)
+   static_assert(sizeof(f64) == sizeof(__riscv_d_ext_state), "Size mismatch");
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context.h b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context.h
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context.h	2024-01-06 23:24:50.280000000 +0800
+@@ -23,6 +23,9 @@
+ #include <windows.h>
+ #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+ #include <ucontext.h>
++#if defined(ARCH_CPU_LOONG64)
++#include <asm/sigcontext.h>
++#endif
+ #endif  // BUILDFLAG(IS_APPLE)
+ 
+ namespace crashpad {
+@@ -36,7 +39,14 @@
+ #elif BUILDFLAG(IS_WIN)
+ using NativeCPUContext = CONTEXT;
+ #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
++#if defined(ARCH_CPU_LOONG64)
++typedef struct {
++  ucontext_t ucontext;
++  struct sctx_info contextinfo;
++}NativeCPUContext;
++#else
+ using NativeCPUContext = ucontext_t;
++#endif
+ #endif  // BUILDFLAG(IS_APPLE)
+ 
+ //! \brief Saves the CPU context.
+@@ -70,6 +80,7 @@
+ //!     Linux               | ARM/ARM64    | `r0`/`x0`
+ //!     Linux               | MIPS/MIPS64  | `$a0`
+ //!     Linux               | RISCV64      | `a0`
++//!     Linux               | LOONG64      | `$a0`
+ //!
+ //!     Additionally, the value `LR` on ARM/ARM64 will be the return address of
+ //!     this function.
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_linux.S b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_linux.S	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_linux.S	2024-01-06 23:28:11.876000000 +0800
+@@ -24,16 +24,20 @@
+ // compatibility with both possibilities.
+ #define CAPTURECONTEXT_SYMBOL _ZN8crashpad14CaptureContextEP10ucontext_t
+ #define CAPTURECONTEXT_SYMBOL2 _ZN8crashpad14CaptureContextEP8ucontext
++#define CAPTURECONTEXT_SYMBOL3 _ZN8crashpad14CaptureContextEPNS_16NativeCPUContextE
+ 
+   .text
+   .globl CAPTURECONTEXT_SYMBOL
+   .globl CAPTURECONTEXT_SYMBOL2
++  .globl CAPTURECONTEXT_SYMBOL3
++  
+ #if defined(__i386__) || defined(__x86_64__)
+   .balign 16, 0x90
+-#elif defined(__arm__) || defined(__aarch64__)
++#elif defined(__arm__) || defined(__aarch64__) || defined(__loongarch_lp64)
+   .balign 4, 0x0
+   .type CAPTURECONTEXT_SYMBOL, %function
+   .type CAPTURECONTEXT_SYMBOL2, %function
++  .type CAPTURECONTEXT_SYMBOL3, %function
+ #elif defined(__mips__)
+   .balign 4, 0x0
+ #elif defined(__riscv)
+@@ -42,6 +46,7 @@
+ 
+ CAPTURECONTEXT_SYMBOL:
+ CAPTURECONTEXT_SYMBOL2:
++CAPTURECONTEXT_SYMBOL3:
+   CRASHPAD_AARCH64_VALID_CALL_TARGET
+ 
+ #if defined(__i386__)
+@@ -510,4 +515,50 @@
+ 
+   ret
+ 
++#elif defined(__loongarch_lp64)
++
++#define MCONTEXT_GREG_SIZE 8
++#define MCONTEXT_PC_OFFSET 176
++#define MCONTEXT_GREGS_OFFSET 184
++
++#define STORE_GPR(X) st.d $r##X, $a0, MCONTEXT_GREGS_OFFSET + X * MCONTEXT_GREG_SIZE
++#define STORE_PC st.d $ra, $a0, MCONTEXT_PC_OFFSET
++
++  STORE_PC
++  STORE_GPR(0)
++  STORE_GPR(1)
++  STORE_GPR(2)
++  STORE_GPR(3)
++  STORE_GPR(4)
++  STORE_GPR(5)
++  STORE_GPR(6)
++  STORE_GPR(7)
++  STORE_GPR(8)
++  STORE_GPR(9)
++  STORE_GPR(10)
++  STORE_GPR(11)
++  STORE_GPR(12)
++  STORE_GPR(13)
++  STORE_GPR(14)
++  STORE_GPR(15)
++  STORE_GPR(16)
++  STORE_GPR(17)
++  STORE_GPR(18)
++  STORE_GPR(19)
++  STORE_GPR(20)
++  STORE_GPR(21)
++  STORE_GPR(22)
++  STORE_GPR(23)
++  STORE_GPR(24)
++  STORE_GPR(25)
++  STORE_GPR(26)
++  STORE_GPR(27)
++  STORE_GPR(28)
++  STORE_GPR(29)
++  STORE_GPR(30)
++  STORE_GPR(31)
++
++  jirl $zero, $ra, 0
++
++
+ #endif  // __i386__
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test.cc	2024-01-06 23:29:17.540000000 +0800
+@@ -48,7 +48,7 @@
+   uintptr_t pc = ProgramCounterFromContext(context_1);
+ 
+ #if !defined(ADDRESS_SANITIZER) && !defined(ARCH_CPU_MIPS_FAMILY) && \
+-    !defined(MEMORY_SANITIZER)
++    !defined(MEMORY_SANITIZER) && !defined(ARCH_CPU_LOONG64)
+   // Sanitizers can cause enough code bloat that the “nearby” check would
+   // likely fail.
+   const uintptr_t kReferencePC =
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test_util_linux.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test_util_linux.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test_util_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/misc/capture_context_test_util_linux.cc	2024-01-06 23:32:00.140000000 +0800
+@@ -38,6 +38,8 @@
+ #elif defined(ARCH_CPU_RISCV64)
+   EXPECT_EQ(context.uc_mcontext.__gregs[10],
+             FromPointerCast<uintptr_t>(&context));
++#elif defined(ARCH_CPU_LOONG64)
++  EXPECT_EQ(context.ucontext.uc_mcontext.__gregs[4], FromPointerCast<uintptr_t>(&context));
+ #endif
+ }
+ 
+@@ -54,6 +56,8 @@
+   return context.uc_mcontext.pc;
+ #elif defined(ARCH_CPU_RISCV64)
+   return context.uc_mcontext.__gregs[0];
++#elif defined(ARCH_CPU_LOONG64)
++  return context.ucontext.uc_mcontext.__pc;
+ #endif
+ }
+ 
+@@ -70,6 +74,8 @@
+   return context.uc_mcontext.gregs[29];
+ #elif defined(ARCH_CPU_RISCV64)
+   return context.uc_mcontext.__gregs[2];
++#elif defined(ARCH_CPU_LOONG64)
++  return context.ucontext.uc_mcontext.__gregs[3];
+ #endif
+ }
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/net/http_transport_libcurl.cc b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/net/http_transport_libcurl.cc
+--- a/src/3rdparty/chromium/third_party/crashpad/crashpad/util/net/http_transport_libcurl.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/crashpad/crashpad/util/net/http_transport_libcurl.cc	2024-01-06 23:32:43.924000000 +0800
+@@ -239,6 +239,8 @@
+ #endif
+ #elif defined (ARCH_CPU_RISCV64)
+     static constexpr char arch[] = "riscv64";
++#elif defined(ARCH_CPU_LOONG64)
++    static constexpr char arch[] = "loong64";
+ #else
+ #error Port
+ #endif
+diff -uNr a/src/3rdparty/chromium/third_party/dav1d/config/linux-noasm/generic/config.h b/src/3rdparty/chromium/third_party/dav1d/config/linux-noasm/generic/config.h
+--- a/src/3rdparty/chromium/third_party/dav1d/config/linux-noasm/generic/config.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/dav1d/config/linux-noasm/generic/config.h	2024-01-06 20:54:58.348000000 +0800
+@@ -5,6 +5,8 @@
+ 
+ #pragma once
+ 
++#define ARCH_LOONG64 1
++
+ #define ARCH_AARCH64 0
+ 
+ #define ARCH_ARM 0
+diff -uNr a/src/3rdparty/chromium/third_party/libgav1/options.gni b/src/3rdparty/chromium/third_party/libgav1/options.gni
+--- a/src/3rdparty/chromium/third_party/libgav1/options.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/libgav1/options.gni	2024-01-06 20:55:40.752000000 +0800
+@@ -9,5 +9,5 @@
+   use_libgav1_parser =
+       (is_chromeos || is_linux || is_win) &&
+       (target_cpu == "x86" || target_cpu == "x64" || target_cpu == "arm" ||
+-       target_cpu == "arm64" || target_cpu == "ppc64")
++       target_cpu == "arm64" || target_cpu == "ppc64" || target_cpu == "loong64" )
+ }
+diff -uNr a/src/3rdparty/chromium/third_party/libvpx/BUILD.gn b/src/3rdparty/chromium/third_party/libvpx/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/libvpx/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/libvpx/BUILD.gn	2024-01-10 18:09:13.096000000 +0800
+@@ -462,10 +462,12 @@
+   if (current_cpu == "arm" && arm_assembly_sources != []) {
+     deps += [ ":libvpx_assembly_arm" ]
+   }
++
+   if (current_cpu == "loong64") {
+     deps += [ ":libvpx_loongarch_lsx" ]
+   }
+ 
++
+   public_configs = [ ":libvpx_external_config" ]
+ }
+ 
+diff -uNr a/src/3rdparty/chromium/third_party/libvpx/source/config/linux/loongarch/vpx_dsp_rtcd.h b/src/3rdparty/chromium/third_party/libvpx/source/config/linux/loongarch/vpx_dsp_rtcd.h
+--- a/src/3rdparty/chromium/third_party/libvpx/source/config/linux/loongarch/vpx_dsp_rtcd.h	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/libvpx/source/config/linux/loongarch/vpx_dsp_rtcd.h	2024-01-10 18:38:00.188000000 +0800
+@@ -1096,14 +1096,14 @@
+                       const int16_t* dequant_ptr,
+                       uint16_t* eob_ptr,
+                       const struct ScanOrder* const scan_order);
+-void vpx_quantize_b_lsx(const tran_low_t* coeff_ptr,
+-                        intptr_t n_coeffs,
+-                        const struct macroblock_plane* const mb_plane,
+-                        tran_low_t* qcoeff_ptr,
+-                        tran_low_t* dqcoeff_ptr,
+-                        const int16_t* dequant_ptr,
+-                        uint16_t* eob_ptr,
+-                        const struct ScanOrder* const scan_order);
++void vpx_quantize_b_lsx(const int16_t *coeff_ptr, intptr_t n_coeffs,
++                        const int16_t *zbin_ptr, const int16_t *round_ptr,
++                        const int16_t *quant_ptr,
++                        const int16_t *quant_shift_ptr, int16_t *qcoeff_ptr,
++                        int16_t *dqcoeff_ptr, const int16_t *dequant_ptr,
++                        uint16_t *eob_ptr, const int16_t *scan,
++                        const int16_t *iscan);
++
+ RTCD_EXTERN void (*vpx_quantize_b)(
+     const tran_low_t* coeff_ptr,
+     intptr_t n_coeffs,
+@@ -1121,13 +1121,14 @@
+                             const int16_t* dequant_ptr,
+                             uint16_t* eob_ptr,
+                             const struct ScanOrder* const scan_order);
+-void vpx_quantize_b_32x32_lsx(const tran_low_t* coeff_ptr,
+-                              const struct macroblock_plane* const mb_plane,
+-                              tran_low_t* qcoeff_ptr,
+-                              tran_low_t* dqcoeff_ptr,
+-                              const int16_t* dequant_ptr,
+-                              uint16_t* eob_ptr,
+-                              const struct ScanOrder* const scan_order);
++void vpx_quantize_b_32x32_lsx(const int16_t *coeff_ptr, intptr_t n_coeffs,
++                              const int16_t *zbin_ptr, const int16_t *round_ptr,
++                              const int16_t *quant_ptr,
++                              const int16_t *quant_shift_ptr,
++                              int16_t *qcoeff_ptr, int16_t *dqcoeff_ptr,
++                              const int16_t *dequant_ptr, uint16_t *eob_ptr,
++                              const int16_t *scan, const int16_t *iscan);
++
+ RTCD_EXTERN void (*vpx_quantize_b_32x32)(
+     const tran_low_t* coeff_ptr,
+     const struct macroblock_plane* const mb_plane,
+diff -uNr a/src/3rdparty/chromium/third_party/protobuf/src/google/protobuf/port_def.inc b/src/3rdparty/chromium/third_party/protobuf/src/google/protobuf/port_def.inc
+--- a/src/3rdparty/chromium/third_party/protobuf/src/google/protobuf/port_def.inc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/protobuf/src/google/protobuf/port_def.inc	2024-01-06 20:18:53.452000000 +0800
+@@ -235,7 +235,7 @@
+ #endif
+ #if __has_cpp_attribute(clang::musttail) && !defined(__arm__) && \
+     !defined(_ARCH_PPC) && !defined(__wasm__) &&                 \
+-    !(defined(_MSC_VER) && defined(_M_IX86))
++    !(defined(_MSC_VER) && defined(_M_IX86)) && !defined(__loongarch__)
+ #  ifndef PROTO2_OPENSOURCE
+ // Compilation fails on ARM32: b/195943306
+ // Compilation fails on powerpc64le: b/187985113
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/CMakeLists.txt b/src/3rdparty/chromium/third_party/swiftshader/CMakeLists.txt
+--- a/src/3rdparty/chromium/third_party/swiftshader/CMakeLists.txt	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/CMakeLists.txt	2024-01-08 09:53:34.480000000 +0800
+@@ -60,6 +60,12 @@
+     else()
+         message(FATAL_ERROR "Architecture is not supported")
+     endif()
++elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch*")
++    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
++        set(ARCH "loongarch64")
++    else()
++        set(ARCH "loongarch")
++    endif()
+ else()
+     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+         set(ARCH "x86_64")
+@@ -193,9 +199,15 @@
+ set(REACTOR_BACKEND ${DEFAULT_REACTOR_BACKEND} CACHE STRING "JIT compiler back-end used by Reactor")
+ set_property(CACHE REACTOR_BACKEND PROPERTY STRINGS LLVM LLVM-Submodule Subzero)
+ 
+-set(DEFAULT_SWIFTSHADER_LLVM_VERSION "10.0")
+-set(SWIFTSHADER_LLVM_VERSION ${DEFAULT_SWIFTSHADER_LLVM_VERSION} CACHE STRING "LLVM version to use")
+-set_property(CACHE SWIFTSHADER_LLVM_VERSION PROPERTY STRINGS "10.0")
++if(ARCH STREQUAL "loongarch64")
++    set(DEFAULT_SWIFTSHADER_LLVM_VERSION "11.0")
++    set(SWIFTSHADER_LLVM_VERSION ${DEFAULT_SWIFTSHADER_LLVM_VERSION} CACHE STRING "LLVM version to use")
++    set_property(CACHE SWIFTSHADER_LLVM_VERSION PROPERTY STRINGS "11.0")
++else()
++	set(DEFAULT_SWIFTSHADER_LLVM_VERSION "10.0")
++	set(SWIFTSHADER_LLVM_VERSION ${DEFAULT_SWIFTSHADER_LLVM_VERSION} CACHE STRING "LLVM version to use")
++	set_property(CACHE SWIFTSHADER_LLVM_VERSION PROPERTY STRINGS "10.0")
++endif()
+ 
+ # If defined, overrides the default optimization level of the current reactor backend.
+ # Set to one of the rr::Optimization::Level enum values.
+@@ -521,6 +533,12 @@
+         set_cpp_flag("-fPIC")
+         set_cpp_flag("-mxgot")
+     endif()
++    if(ARCH STREQUAL "loongarch64")
++        set_cpp_flag("-march=loongarch64")
++        set_cpp_flag("-mabi=lp64d")
++        set_cpp_flag("-fPIC")
++    endif()
++
+ 
+     if(SWIFTSHADER_LESS_DEBUG_INFO)
+         # Use -g1 to be able to get stack traces
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/BUILD.gn b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/BUILD.gn	2024-01-08 10:44:18.536000000 +0800
+@@ -307,7 +307,11 @@
+ 
+ if (supports_llvm) {
+   swiftshader_source_set("swiftshader_llvm_reactor") {
+-    llvm_dir = "../../third_party/llvm-10.0"
++    if (current_cpu == "loong64") {
++      llvm_dir = "../../third_party/llvm-11.0"
++    } else {
++      llvm_dir = "../../third_party/llvm-10.0"
++    }
+ 
+     deps = [
+       ":swiftshader_reactor_base",
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/ExecutableMemory.cpp b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/ExecutableMemory.cpp
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/ExecutableMemory.cpp	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/ExecutableMemory.cpp	2024-01-08 09:57:59.048000000 +0800
+@@ -158,6 +158,8 @@
+ #			define __NR_memfd_create 356
+ #		elif __x86_64__
+ #			define __NR_memfd_create 319
++#       elif __loongarch64
++#           define __NR_memfd_create 279
+ #		endif /* __NR_memfd_create__ */
+ #		ifdef __NR_memfd_create
+ 	// In the event of no system call this returns -1 with errno set
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMJIT.cpp b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMJIT.cpp
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMJIT.cpp	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMJIT.cpp	2024-01-08 10:31:21.584000000 +0800
+@@ -235,7 +235,7 @@
+ 			jitTargetMachineBuilder.getFeatures().AddFeature(feature.first(), feature.second);
+ 		}
+ 
+-#if LLVM_VERSION_MAJOR >= 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
++#if LLVM_VERSION_MAJOR > 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
+ 
+ #if defined(__riscv) && __riscv_xlen == 64
+ 		// jitTargetMachineBuilder.getFeatures() on RISC-V does
+@@ -447,7 +447,7 @@
+ }
+ #endif
+ 
+-#if LLVM_VERSION_MAJOR >= 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
++#if LLVM_VERSION_MAJOR > 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
+ class ExternalSymbolGenerator : public llvm::orc::DefinitionGenerator
+ #else
+ class ExternalSymbolGenerator : public llvm::orc::JITDylib::DefinitionGenerator
+@@ -636,7 +636,7 @@
+ 	};
+ 
+ 	llvm::Error tryToGenerate(
+-#if LLVM_VERSION_MAJOR >= 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
++#if LLVM_VERSION_MAJOR > 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
+ 	    llvm::orc::LookupState &state,
+ #endif
+ 	    llvm::orc::LookupKind kind,
+@@ -894,7 +894,7 @@
+ 
+ 	~JITRoutine()
+ 	{
+-#if LLVM_VERSION_MAJOR >= 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
++#if LLVM_VERSION_MAJOR > 11 /* TODO(b/165000222): Unconditional after LLVM 11 upgrade */
+ 		if(auto err = session.endSession())
+ 		{
+ 			session.reportError(std::move(err));
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMReactor.cpp b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMReactor.cpp
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMReactor.cpp	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/LLVMReactor.cpp	2024-01-08 10:34:01.292000000 +0800
+@@ -375,7 +375,11 @@
+ 
+ bool Caps::coroutinesSupported()
+ {
++#if defined(__loongarch__)
++	return false;
++#else
+ 	return true;
++#endif
+ }
+ 
+ bool Caps::fmaIsFast()
+@@ -611,7 +615,7 @@
+ 
+ 	llvm::Instruction *declaration;
+ 
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	auto align = jit->module->getDataLayout().getPrefTypeAlign(T(type));
+ #else
+ 	auto align = llvm::MaybeAlign(jit->module->getDataLayout().getPrefTypeAlignment(T(type)));
+@@ -1293,7 +1297,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Add, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1303,7 +1307,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Sub, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1313,7 +1317,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::And, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1323,7 +1327,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Or, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1333,7 +1337,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Xor, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1343,7 +1347,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Min, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1353,7 +1357,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Max, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1363,7 +1367,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::UMin, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1373,7 +1377,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::UMax, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1383,7 +1387,7 @@
+ {
+ 	RR_DEBUG_INFO_UPDATE_LOC();
+ 	return V(jit->builder->CreateAtomicRMW(llvm::AtomicRMWInst::Xchg, V(ptr), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                       llvm::MaybeAlign(),
+ #endif
+ 	                                       atomicOrdering(true, memoryOrder)));
+@@ -1395,7 +1399,7 @@
+ 	// Note: AtomicCmpXchgInstruction returns a 2-member struct containing {result, success-flag}, not the result directly.
+ 	return V(jit->builder->CreateExtractValue(
+ 	    jit->builder->CreateAtomicCmpXchg(V(ptr), V(compare), V(value),
+-#if LLVM_VERSION_MAJOR >= 11
++#if LLVM_VERSION_MAJOR > 11
+ 	                                      llvm::MaybeAlign(),
+ #endif
+ 	                                      atomicOrdering(true, memoryOrderEqual),
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/reactor.gni b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/reactor.gni
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/reactor.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/reactor.gni	2024-01-08 10:37:25.808000000 +0800
+@@ -10,7 +10,7 @@
+ 
+ declare_args() {
+   # Subzero doesn't support ARM64, MIPS64, PPC64, and RISCV64 (only x86 and ARMv7a).
+-  supports_subzero = current_cpu != "arm64" && current_cpu != "mips64el" && current_cpu != "ppc64" && current_cpu != "riscv64"
++  supports_subzero = current_cpu != "arm64" && current_cpu != "mips64el" && current_cpu != "ppc64" && current_cpu != "riscv64" && current_cpu != "loong64"
+ }
+ 
+ declare_args() {
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/SubzeroReactor.cpp b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/SubzeroReactor.cpp
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/SubzeroReactor.cpp	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Reactor/SubzeroReactor.cpp	2024-01-08 10:36:46.944000000 +0800
+@@ -309,6 +309,8 @@
+ 		return false;
+ #elif defined(__mips__)
+ 		return false;
++#elif defined(__loongarch__)
++		return false;
+ #else
+ #	error "Unknown architecture"
+ #endif
+@@ -659,7 +661,9 @@
+ 	ASSERT(sizeof(void *) == 8 && elfHeader->e_machine == EM_AARCH64);
+ #elif defined(__mips__)
+ 	ASSERT(sizeof(void *) == 4 && elfHeader->e_machine == EM_MIPS);
+-#else
++##elif defined(__loongarch64)
++	ASSERT(sizeof(void *) == 8 && elfHeader->e_machine == EM_LOONGARCH);
++else
+ #	error "Unsupported platform"
+ #endif
+ 
+@@ -897,6 +901,8 @@
+ #elif defined(__mips__)
+ 	Flags.setTargetArch(Ice::Target_MIPS32);
+ 	Flags.setTargetInstructionSet(Ice::BaseInstructionSet);
++#elif defined(__loongarch64)
++	//TODO
+ #else  // x86
+ 	Flags.setTargetArch(sizeof(void *) == 8 ? Ice::Target_X8664 : Ice::Target_X8632);
+ 	Flags.setTargetInstructionSet(CPUID::SSE4_1 ? Ice::X86InstructionSet_SSE4_1 : Ice::X86InstructionSet_SSE2);
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/System/Linux/MemFd.cpp b/src/3rdparty/chromium/third_party/swiftshader/src/System/Linux/MemFd.cpp
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/System/Linux/MemFd.cpp	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/System/Linux/MemFd.cpp	2024-01-08 10:38:10.568000000 +0800
+@@ -35,6 +35,8 @@
+ #	define __NR_memfd_create 356
+ #elif __x86_64__
+ #	define __NR_memfd_create 319
++#elif __loongarch64
++#  define __NR_memfd_create 279
+ #endif /* __NR_memfd_create__ */
+ 
+ LinuxMemFd::~LinuxMemFd()
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/src/Vulkan/BUILD.gn b/src/3rdparty/chromium/third_party/swiftshader/src/Vulkan/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/swiftshader/src/Vulkan/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/src/Vulkan/BUILD.gn	2024-01-08 10:43:48.348000000 +0800
+@@ -194,6 +194,9 @@
+       "-Wl,-exported_symbols_list," +
+           rebase_path("vk_swiftshader.exports", root_build_dir),
+     ]
++    if (current_cpu != "x64") {
++      ldflags += [ "-Wl,-lz" ]
++    }
+   } else if (is_linux || is_chromeos || is_fuchsia) {
+     inputs = [
+       "vk_swiftshader.lds",
+diff -uNr a/src/3rdparty/chromium/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn b/src/3rdparty/chromium/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn
+--- a/src/3rdparty/chromium/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn	2024-01-07 23:22:50.044000000 +0800
+@@ -158,6 +158,8 @@
+     deps += [ ":swiftshader_llvm_riscv64" ]
+   } else if (current_cpu == "x86" || current_cpu == "x64") {
+     deps += [ ":swiftshader_llvm_x86" ]
++  } else if (current_cpu == "loong64") {
++    deps += [ ":swiftshader_llvm_loong64" ]
+   } else {
+     assert(false, "Unsupported current_cpu")
+   }
+diff -uNr a/src/3rdparty/chromium/ui/gfx/linux/drm_util_linux.cc b/src/3rdparty/chromium/ui/gfx/linux/drm_util_linux.cc
+--- a/src/3rdparty/chromium/ui/gfx/linux/drm_util_linux.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/ui/gfx/linux/drm_util_linux.cc	2024-01-06 20:19:55.688000000 +0800
+@@ -8,6 +8,10 @@
+ 
+ #include "base/notreached.h"
+ 
++#ifndef DRM_FORMAT_P010
++#define DRM_FORMAT_P010 fourcc_code('P', '0', '1', '0')
++#endif
++
+ namespace ui {
+ 
+ int GetFourCCFormatFromBufferFormat(gfx::BufferFormat format) {
+diff -uNr a/src/3rdparty/chromium/ui/gl/features.gni b/src/3rdparty/chromium/ui/gl/features.gni
+--- a/src/3rdparty/chromium/ui/gl/features.gni	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/ui/gl/features.gni	2024-01-06 20:31:01.096000000 +0800
+@@ -37,5 +37,5 @@
+        is_chromeos_ash || is_fuchsia) &&
+       (target_cpu == "x86" || target_cpu == "x64" || target_cpu == "arm" ||
+        target_cpu == "arm64" || target_cpu == "mipsel" ||
+-       target_cpu == "mips64el" || target_cpu == "riscv64")
++       target_cpu == "mips64el" || target_cpu == "riscv64" || target_cpu == "loong64" )
+ }

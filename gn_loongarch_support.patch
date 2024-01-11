@@ -1,0 +1,12 @@
+diff -uNr a/src/3rdparty/gn/src/util/sys_info.cc b/src/3rdparty/gn/src/util/sys_info.cc
+--- a/src/3rdparty/gn/src/util/sys_info.cc	2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/gn/src/util/sys_info.cc	2024-01-07 16:33:44.024000000 +0800
+@@ -34,6 +34,8 @@
+     arch = "x86_64";
+   } else if (arch == "amd64") {
+     arch = "x86_64";
++  } else if (arch == "loongarch64") {
++    arch = "loongarch64";
+   } else if (os == "AIX" || os == "OS400") {
+     arch = "ppc64";
+   } else if (std::string(info.sysname) == "OS/390") {
