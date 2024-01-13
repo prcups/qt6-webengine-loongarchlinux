@@ -29,10 +29,10 @@ diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/partition_a
  
  # We want to provide assertions that guard against inconsistent build
  # args, but there is no point in having them fire if we're not building
-diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc
---- a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc	1970-01-01 08:00:00.000000000 +0800
-+++ b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc	2024-01-08 12:58:19.132000000 +0800
-@@ -0,0 +1,48 @@
+diff -urN a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc
+--- a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc 1970-01-01 08:00:00.000000000 +0800
++++ b/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/stack/asm/loong64/push_registers_asm.cc 2024-01-13 22:47:27.908000000 +0800
+@@ -0,0 +1,49 @@
 +// Copyright 2023 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -44,18 +44,19 @@ diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/st
 +// using clang.
 +//
 +// Calling convention source:
-+// https://riscv.org/wp-content/uploads/2015/01/riscv-calling.pdf Table 18.2
++// https://loongson.github.io/LoongArch-Documentation/LoongArch-ELF-ABI-EN.html
 +asm(".global PAPushAllRegistersAndIterateStack             \n"
 +    ".type PAPushAllRegistersAndIterateStack, %function    \n"
 +    ".hidden PAPushAllRegistersAndIterateStack             \n"
 +    "PAPushAllRegistersAndIterateStack:                    \n"
 +    // Push all callee-saved registers and save return address.
-+    "  addi.d $sp, $sp, -88                                \n"
++    "  addi.d $sp, $sp, -96                                \n"
 +    // Save return address.
-+    "  st.d $ra, $sp, 80                                   \n"
++    "  st.d $ra, $sp, 88                                   \n"
 +    // sp is callee-saved.
-+    "  st.d $sp, $sp, 72                                   \n"
-+    // s0-s8 and fp are callee-saved.
++    "  st.d $sp, $sp, 80                                   \n"
++    // s0-s9(fp) are callee-saved.a
++    "  st.d $fp, $sp, 72                                   \n"
 +    "  st.d $s8, $sp, 64                                   \n"
 +    "  st.d $s7, $sp, 56                                   \n"
 +    "  st.d $s6, $sp, 48                                   \n"
@@ -65,8 +66,8 @@ diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/st
 +    "  st.d $s2, $sp, 16                                   \n"
 +    "  st.d $s1, $sp, 8                                    \n"
 +    "  st.d $s0, $sp, 0                                    \n"
-+    // Maintain frame pointer(fp is s0).
-+    "  move $s0, $sp                                       \n"
++    // Maintain frame pointer(fp is s9).
++    "  move $fp, $sp                                       \n"
 +    // Pass 1st parameter (a0) unchanged (Stack*).
 +    // Pass 2nd parameter (a1) unchanged (StackVisitor*).
 +    // Save 3rd parameter (a2; IterateStackCallback) to a3.
@@ -76,10 +77,10 @@ diff -uNr a/src/3rdparty/chromium/base/allocator/partition_allocator/starscan/st
 +    // Call the callback.
 +    "  jirl $ra, $a3, 0                                    \n"
 +    // Load return address.
-+    "  ld.d $ra, $sp, 80                                   \n"
++    "  ld.d $ra, $sp, 88                                   \n"
 +    // Restore frame pointer.
-+    "  ld.d $s0, $sp, 0                                    \n"
-+    "  addi.d $sp, $sp, 88                                 \n"
++    "  ld.d $fp, $sp, 72                                   \n"
++    "  addi.d $sp, $sp, 96                                 \n"
 +    "  jr $ra                                              \n");
 diff -uNr a/src/3rdparty/chromium/build/config/linux/pkg-config.py b/src/3rdparty/chromium/build/config/linux/pkg-config.py
 --- a/src/3rdparty/chromium/build/config/linux/pkg-config.py	2023-12-13 06:08:45.000000000 +0800
