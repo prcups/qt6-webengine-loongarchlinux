@@ -759,7 +759,7 @@ diff -uNr a/src/3rdparty/chromium/sandbox/linux/seccomp-bpf-helpers/syscall_sets
      case __NR_dup3:
  #if defined(__x86_64__) || defined(__arm__) || defined(__mips__) || \
 -    defined(__aarch64__)
-+    defined(__aarch64__) && defined(__loongarch_lp64)
++    defined(__aarch64__) || defined(__loongarch_lp64)
      case __NR_shutdown:
  #endif
        return true;
