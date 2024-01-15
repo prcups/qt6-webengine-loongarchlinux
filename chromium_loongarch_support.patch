@@ -1334,9 +1334,9 @@ diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/remote_syscall_ar
    size_t str_len = strlen(kPathPart);
    size_t len_left_to_write = size;
    char* curr_buf_pos = buf;
-diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc
---- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc	2023-12-13 06:08:45.000000000 +0800
-+++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc	2024-01-07 14:14:18.836000000 +0800
+diff -urN a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc
+--- a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc  2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatcher.cc     2024-01-15 09:25:35.664000000 +0800
 @@ -26,6 +26,8 @@
    return Stat64(pathname, follow_links, sb);
  #elif defined(__NR_newfstatat)
@@ -1346,14 +1346,17 @@ diff -uNr a/src/3rdparty/chromium/sandbox/linux/syscall_broker/syscall_dispatche
  #endif
  }
  
-@@ -169,6 +171,11 @@
+@@ -169,6 +171,14 @@
        return Stat64(reinterpret_cast<const char*>(args.args[0]), true,
                      reinterpret_cast<struct kernel_stat64*>(args.args[1]));
  #endif
 +#if defined(__NR_statx)
 +    case __NR_statx:
-+      return Statx(reinterpret_cast<const char*>(args.args[0]), true,
-+                   reinterpret_cast<struct kernel_statx*>(args.args[1]));
++        if (static_cast<int>(args.args[0]) != AT_FDCWD)
++            return -EPERM;
++        return Statx(reinterpret_cast<const char*>(args.args[1]),
++                  !(static_cast<int>(args.args[2]) & AT_SYMLINK_NOFOLLOW),
++                   reinterpret_cast<struct kernel_statx*>(args.args[4]));
 +#endif
  #if defined(__NR_lstat)
      case __NR_lstat:
@@ -2694,21 +2697,33 @@ diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/bpf_network_policy_linux.
      case __NR_getdents:
  #endif
      case __NR_getdents64:
-diff -uNr a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc
---- a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc	2023-12-13 06:08:45.000000000 +0800
-+++ b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc	2024-01-07 14:31:35.496000000 +0800
-@@ -552,7 +552,11 @@
+diff -urN a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc
+--- a/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc       2023-12-13 06:08:45.000000000 +0800
++++ b/src/3rdparty/chromium/sandbox/policy/linux/sandbox_linux.cc  2024-01-15 09:34:03.224000000 +0800
+@@ -552,6 +552,7 @@
    const bpf_dsl::ResultExpr handle_via_broker =
        bpf_dsl::Trap(syscall_broker::BrokerClient::SIGSYS_Handler,
                      broker_process_->GetBrokerClientSignalBased());
-+#if defined(__loongarch_lp64)
-+  if (sysno == __NR_statx_default) {
-+#else
++#if !defined(__loongarch_lp64)
    if (sysno == __NR_fstatat_default) {
-+#endif
      // This may be an fstatat(fd, "", stat_buf, AT_EMPTY_PATH), which should be
      // rewritten as fstat(fd, stat_buf). This should be consistent with how the
-     // baseline policy handles fstatat().
+@@ -562,6 +563,15 @@
+     return bpf_dsl::If((flags & AT_EMPTY_PATH) == AT_EMPTY_PATH,
+                        RewriteFstatatSIGSYS(BPFBasePolicy::GetFSDeniedErrno()))
+         .Else(handle_via_broker);
++#else
++  if (sysno == __NR_statx) {
++    // This may be a statx(fd, "", AT_EMPTY_PATH, mask, statx_buf), and we allow it.
++    // Otherwise, we expect a statx(AT_FDCWD, path, flags, mask, statx_buf).
++    const bpf_dsl::Arg<int> flags(2);
++    return bpf_dsl::If((flags & AT_EMPTY_PATH) == AT_EMPTY_PATH,
++                       bpf_dsl::Allow())
++        .Else(handle_via_broker);
++#endif
+   } else {
+     return handle_via_broker;
+   }
 diff -uNr a/src/3rdparty/chromium/skia/BUILD.gn b/src/3rdparty/chromium/skia/BUILD.gn
 --- a/src/3rdparty/chromium/skia/BUILD.gn	2023-12-13 06:08:45.000000000 +0800
 +++ b/src/3rdparty/chromium/skia/BUILD.gn	2024-01-06 20:15:33.264000000 +0800
